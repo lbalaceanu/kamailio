@@ -1,0 +1,215 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## acc-cdr_add-expire-log.dpatch by  <lbalaceanu@dxbu-czc1524bcy>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_cdr.c ui-siprouter/modules/acc/acc_cdr.c
+--- ui-siprouter~/modules/acc/acc_cdr.c	2014-07-23 17:28:58.490841937 +0300
++++ ui-siprouter/modules/acc/acc_cdr.c	2014-07-23 17:29:52.051767940 +0300
+@@ -162,11 +162,22 @@
+ 	}
+ 
+     /* get extra values */
+-	n += extra2strar( cdr_extra,
++	if (message)
++	{
++		n += extra2strar( cdr_extra,
+ 						message,
+ 						cdr_value_array + m,
+ 						cdr_int_array + m,
+ 						cdr_type_array + m);
++	} else if (cdr_expired_dlg_enable){
++        LM_WARN( "fallback to dlg_only search because of message doesn't exist.\n");
++        m += extra2strar_dlg_only( cdr_extra,
++                dialog,
++                cdr_value_array + m,
++                cdr_int_array + m,
++                cdr_type_array +m,
++                &dlgb);
++    }
+ 	m += n;
+ 
+ 	for( ; i<m; i++) {
+@@ -226,11 +237,22 @@
+                                     cdr_type_array);
+ 
+     /* get extra values */
+-    extra_index += extra2strar( cdr_extra,
++    if (message)
++    {
++    	extra_index += extra2strar( cdr_extra,
+                                   message,
+                                   cdr_value_array + message_index,
+                                   cdr_int_array + message_index,
+                                   cdr_type_array + message_index);
++    } else if (cdr_expired_dlg_enable){
++		LM_WARN( "fallback to dlg_only search because of message does not exist.\n");
++		message_index += extra2strar_dlg_only( cdr_extra,
++                                                   dialog,
++                                                   cdr_value_array + message_index,
++                                                   cdr_int_array + message_index,
++                                                   cdr_type_array + message_index,
++                                                   &dlgb);
++    }
+     message_index += extra_index;
+ 
+     for( counter = 0, message_position = cdr_message;
+@@ -289,11 +311,18 @@
+                       struct sip_msg* message)
+ {
+ 	int ret = 0;
+-    if( !dialog || !message)
+-    {
+-        LM_ERR( "dialog or message is empty!");
+-        return -1;
+-    }
++
++	if( !dialog)
++	{
++		LM_ERR( "dialog is empty!");
++		return -1;
++	}
++	/* message can be null when logging expired dialogs  */
++	if ( !cdr_expired_dlg_enable && !message ){
++		LM_ERR( "message is empty!");
++		return -1;
++	}
++
+ 	ret = log_write_cdr(dialog, message);
+ #ifdef SQL_ACC
+ 	ret |= db_write_cdr(dialog, message);
+@@ -614,6 +643,12 @@
+     }
+ 
+     LM_DBG("dialog '%p' expired!\n", dialog);
++
++    if( cdr_expired_dlg_enable  && (write_cdr( dialog, 0) != 0))
++    {
++        LM_ERR( "failed to write cdr!\n");
++        return;
++    }
+ }
+ 
+ /* callback for the cleanup of a dialog. */
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_extra.c ui-siprouter/modules/acc/acc_extra.c
+--- ui-siprouter~/modules/acc/acc_extra.c	2014-07-23 17:28:58.490841937 +0300
++++ ui-siprouter/modules/acc/acc_extra.c	2014-07-23 17:29:52.051767940 +0300
+@@ -295,6 +295,52 @@
+ 	return n;
+ }
+ 
++int extra2strar_dlg_only(struct acc_extra *extra, struct dlg_cell* dlg, str *val_arr,
++		int *int_arr, char *type_arr, const struct dlg_binds* p_dlgb)
++{
++   //string value;
++   str* value = 0;
++   int n=0;
++
++   if( !dlg || !val_arr || !int_arr || !type_arr || !p_dlgb)
++   {
++       LM_ERR( "invalid input parameter!\n");
++       return 0;
++   }
++
++   while (extra) {
++
++       /* check for overflow */
++       if (n==MAX_ACC_EXTRA) {
++           LM_WARN("array to short -> ommiting extras for accounting\n");
++           goto done;
++       }
++
++       val_arr[n].s = 0;
++       val_arr[n].len = 0;
++       type_arr[n] = TYPE_NULL;
++
++	   str key = extra->spec.pvp.pvn.u.isname.name.s;
++	   if ( key.len == 0 || !key.s)
++	   {
++		   n++; extra = extra->next; continue;
++	   }
++	   /* get the value */
++	   value = p_dlgb->get_dlg_var( dlg, &key);
++
++       if (value)
++       {
++           val_arr[n].s = value->s;
++           val_arr[n].len = value->len;
++           type_arr[n] = TYPE_STR;
++       }
++
++       n++;
++       extra = extra->next;
++   }
++done:
++    return n;
++}
+ 
+ int legs2strar( struct acc_extra *legs, struct sip_msg *rq, str *val_arr,
+ 		int *int_arr, char *type_arr, int start)
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_extra.h ui-siprouter/modules/acc/acc_extra.h
+--- ui-siprouter~/modules/acc/acc_extra.h	2014-07-23 17:28:58.490841937 +0300
++++ ui-siprouter/modules/acc/acc_extra.h	2014-07-23 17:29:52.051767940 +0300
+@@ -47,6 +47,7 @@
+ #include "../../str.h"
+ #include "../../pvar.h"
+ #include "../../parser/msg_parser.h"
++#include "../dialog/dlg_load.h"
+ 
+ struct acc_extra *parse_acc_extra(char *extra);
+ 
+@@ -57,6 +58,9 @@
+ int extra2strar( struct acc_extra *extra, struct sip_msg *rq,
+ 		 str *val_arr, int *int_arr, char *type_arr);
+ 
++int extra2strar_dlg_only(struct acc_extra *extra, struct dlg_cell* dlg,
++		str *val_arr, int *int_arr, char *type_arr, const struct dlg_binds* p_dlgb);
++
+ int legs2strar( struct acc_extra *legs, struct sip_msg *rq, str *val_arr,
+ 		int *int_arr, char *type_arr, int start);
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_mod.c ui-siprouter/modules/acc/acc_mod.c
+--- ui-siprouter~/modules/acc/acc_mod.c	2014-07-23 17:28:58.490841937 +0300
++++ ui-siprouter/modules/acc/acc_mod.c	2014-07-23 17:29:52.051767940 +0300
+@@ -142,6 +142,7 @@
+ int cdr_enable  = 0;
+ int cdr_log_enable  = 1;
+ int cdr_start_on_confirmed = 0;
++int cdr_expired_dlg_enable = 0;
+ static char* cdr_facility_str = 0;
+ static char* cdr_log_extra_str = 0;
+ 
+@@ -273,6 +274,7 @@
+ 	{"cdr_start_id",	 STR_PARAM, &cdr_start_str.s		},
+ 	{"cdr_end_id",		 STR_PARAM, &cdr_end_str.s		},
+ 	{"cdr_duration_id",	 STR_PARAM, &cdr_duration_str.s		},
++	{"cdr_expired_dlg_enable", INT_PARAM, &cdr_expired_dlg_enable   },
+ #ifdef RAD_ACC
+ 	{"radius_config",        STR_PARAM, &radius_config        },
+ 	{"radius_flag",          INT_PARAM, &radius_flag          },
+@@ -562,6 +564,12 @@
+ 		return -1;
+ 	}
+ 
++	if( cdr_expired_dlg_enable < 0 || cdr_expired_dlg_enable > 1)
++		{
++			LM_ERR("cdr_expired_dlg_enable is out of range\n");
++			return -1;
++		}
++
+ 	if( cdr_enable)
+ 	{
+ 		if( !cdr_start_str.s || !cdr_end_str.s || !cdr_duration_str.s) 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_mod.h ui-siprouter/modules/acc/acc_mod.h
+--- ui-siprouter~/modules/acc/acc_mod.h	2014-07-23 17:28:52.000000000 +0300
++++ ui-siprouter/modules/acc/acc_mod.h	2014-07-23 17:29:52.051767940 +0300
+@@ -59,6 +59,7 @@
+ extern int cdr_enable;
+ extern int cdr_start_on_confirmed;
+ extern int cdr_log_facility;
++extern int cdr_expired_dlg_enable;
+ 
+ #ifdef RAD_ACC
+ extern int radius_flag;

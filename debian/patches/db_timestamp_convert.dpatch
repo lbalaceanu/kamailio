@@ -1,0 +1,47 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## db_timestamp_convert.dpatch by Verena Kahmann <verena.kahmann@1und1.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/lib/srdb1/db_ut.c ui-siprouter/lib/srdb1/db_ut.c
+--- ui-siprouter~/lib/srdb1/db_ut.c	2015-09-25 12:29:06.000000000 +0200
++++ ui-siprouter/lib/srdb1/db_ut.c	2015-09-25 12:30:02.221212324 +0200
+@@ -222,9 +222,14 @@
+ 	   It is necessary to zero tm structure first */
+ 	memset(&time, '\0', sizeof(struct tm));
+ 	if (strptime(_s, "%Y-%m-%d %H:%M:%S", &time) == NULL) {
+-		LM_ERR("Error during time conversion\n");
+-		return -1;
+-	}
++		LM_WARN("Error during time conversion, setting to 1970-01-01 00:00:00\n");
++		/* Retry with an "old" date */
++		const char* tempstr="1970-01-01 00:00:00";
++		if (strptime(tempstr, "%Y-%m-%d %H:%M:%S", &time) == NULL) {
++			LM_ERR("Error during time conversion\n");
++			return -1;
++		}
++	} 
+ 
+ 	/* Daylight saving information got lost in the database
+ 	* so let mktime to guess it. This eliminates the bug when
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/db_mysql/km_res.c ui-siprouter/modules/db_mysql/km_res.c
+--- ui-siprouter~/modules/db_mysql/km_res.c	2015-09-25 12:29:06.000000000 +0200
++++ ui-siprouter/modules/db_mysql/km_res.c	2015-09-25 12:29:14.000000000 +0200
+@@ -97,7 +97,6 @@
+ 			case MYSQL_TYPE_SHORT:
+ 			case MYSQL_TYPE_LONG:
+ 			case MYSQL_TYPE_INT24:
+-			case MYSQL_TYPE_TIMESTAMP:
+ 				LM_DBG("use DB1_INT result type\n");
+ 				RES_TYPES(_r)[col] = DB1_INT;
+ 				break;
+@@ -113,6 +112,7 @@
+ 				RES_TYPES(_r)[col] = DB1_DOUBLE;
+ 				break;
+ 
++			case MYSQL_TYPE_TIMESTAMP:
+ 			case MYSQL_TYPE_DATETIME:
+ 				LM_DBG("use DB1_DATETIME result type\n");
+ 				RES_TYPES(_r)[col] = DB1_DATETIME;

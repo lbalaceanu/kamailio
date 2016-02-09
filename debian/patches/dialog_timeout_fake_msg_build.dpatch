@@ -1,0 +1,125 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## dialog_timeout_fake_msg_build.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/lib/kcore/faked_msg.c ui-siprouter/lib/kcore/faked_msg.c
+--- ui-siprouter~/lib/kcore/faked_msg.c	2015-10-13 14:12:56.000000000 +0300
++++ ui-siprouter/lib/kcore/faked_msg.c	2015-10-13 14:17:44.281560728 +0300
+@@ -28,9 +28,14 @@
+ 
+ #define FAKED_SIP_MSG "OPTIONS sip:you@kamailio.org SIP/2.0\r\nVia: SIP/2.0/UDP 127.0.0.1\r\nFrom: <you@kamailio.org>;tag=123\r\nTo: <you@kamailio.org>\r\nCall-ID: 123\r\nCSeq: 1 OPTIONS\r\nContent-Length: 0\r\n\r\n"
+ #define FAKED_SIP_MSG_LEN (sizeof(FAKED_SIP_MSG)-1)
++#define FAKED_SIP_MSG_BUILD_LEN 2048
++
+ static char _faked_sip_buf[FAKED_SIP_MSG_LEN+1];
++static char _faked_sip_build_buf[FAKED_SIP_MSG_BUILD_LEN+1];
+ static struct sip_msg _faked_msg;
++static struct sip_msg _faked_msg_build;
+ static unsigned int _faked_msg_no = 0;
++static unsigned int _faked_msg_build_no = 0;
+ 
+ int faked_msg_init(void)
+ {
+@@ -75,3 +80,64 @@
+ 	clear_branches();
+ 	return &_faked_msg;
+ }
++
++int faked_msg_build(struct dlg_cell *dlg)
++{
++	_faked_sip_build_buf[0] = '\0';
++	strcat(_faked_sip_build_buf, "OPTIONS sip:you@kamailio.org SIP/2.0\r\n");
++	strcat(_faked_sip_build_buf, "Via: SIP/2.0/UDP 127.0.0.1\r\n");
++
++	strcat(_faked_sip_build_buf, "From: <");
++	strncat(_faked_sip_build_buf, dlg->from_uri.s, dlg->from_uri.len);
++	strcat(_faked_sip_build_buf, ">;tag=");
++	strncat(_faked_sip_build_buf, dlg->tag[0].s, dlg->tag[0].len);
++	strcat(_faked_sip_build_buf, "\r\n");
++
++	strcat(_faked_sip_build_buf, "To: <");
++	strncat(_faked_sip_build_buf, dlg->to_uri.s, dlg->to_uri.len);
++	strcat(_faked_sip_build_buf, ">;tag=");
++	strncat(_faked_sip_build_buf, dlg->tag[1].s, dlg->tag[1].len);
++	strcat(_faked_sip_build_buf, "\r\n");
++
++	strcat(_faked_sip_build_buf, "Call-ID: ");
++	strncat(_faked_sip_build_buf, dlg->callid.s, dlg->callid.len);
++	strcat(_faked_sip_build_buf, "\r\n");
++
++	strcat(_faked_sip_build_buf, "CSeq: 1 OPTIONS\r\n");
++	strcat(_faked_sip_build_buf, "Content-Length: 0\r\n\r\n");
++
++	memset(&_faked_msg_build, 0, sizeof(struct sip_msg));
++
++	_faked_msg_build.buf=_faked_sip_build_buf;
++	_faked_msg_build.len=strlen(_faked_sip_build_buf);
++
++	_faked_msg_build.set_global_address=default_global_address;
++	_faked_msg_build.set_global_port=default_global_port;
++
++	if (parse_msg(_faked_msg_build.buf, _faked_msg_build.len, &_faked_msg_build)!=0)
++	{
++		LM_ERR("parse_msg failed for faked msg new\n");
++		return -1;
++	}
++
++	_faked_msg_build.rcv.proto = PROTO_UDP;
++	_faked_msg_build.rcv.src_port = 5060;
++	_faked_msg_build.rcv.src_ip.u.addr32[0] = 0x7f000001;
++	_faked_msg_build.rcv.src_ip.af = AF_INET;
++	_faked_msg_build.rcv.src_ip.len = 4;
++	_faked_msg_build.rcv.dst_port = 5060;
++	_faked_msg_build.rcv.dst_ip.u.addr32[0] = 0x7f000001;
++	_faked_msg_build.rcv.dst_ip.af = AF_INET;
++	_faked_msg_build.rcv.dst_ip.len = 4;
++
++	return 0;
++}
++
++struct sip_msg* faked_msg_build_next(void)
++{
++	_faked_msg_build.id = 1 + _faked_msg_build_no++;
++	_faked_msg_build.pid = my_pid();
++	memset(&_faked_msg_build.tval, 0, sizeof(struct timeval));
++	clear_branches();
++	return &_faked_msg_build;
++}
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/lib/kcore/faked_msg.h ui-siprouter/lib/kcore/faked_msg.h
+--- ui-siprouter~/lib/kcore/faked_msg.h	2015-10-13 14:12:56.000000000 +0300
++++ ui-siprouter/lib/kcore/faked_msg.h	2015-10-13 14:16:34.633561608 +0300
+@@ -24,8 +24,12 @@
+ #define _FAKED_SIP_MSG_H_
+ 
+ #include "../../parser/msg_parser.h"
++#include "../../modules/dialog/dlg_hash.h"
+ 
+ int faked_msg_init(void);
+ struct sip_msg* faked_msg_next(void);
+ 
++int faked_msg_build(struct dlg_cell *dlg);
++struct sip_msg* faked_msg_build_next(void);
++
+ #endif
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/dialog/dlg_handlers.c ui-siprouter/modules/dialog/dlg_handlers.c
+--- ui-siprouter~/modules/dialog/dlg_handlers.c	2015-10-13 14:12:59.000000000 +0300
++++ ui-siprouter/modules/dialog/dlg_handlers.c	2015-10-13 14:14:13.265563396 +0300
+@@ -1527,10 +1527,12 @@
+ 	if(rt==-1 || event_rt.rlist[rt]==NULL)
+ 		return;
+ 
+-	if(msg==NULL)
+-		fmsg = faked_msg_next();
+-	else
++	if(msg==NULL) {
++		faked_msg_build(dlg);
++		fmsg = faked_msg_build_next();
++	} else {
+ 		fmsg = msg;
++	}
+ 
+ 	if (exec_pre_script_cb(fmsg, LOCAL_CB_TYPE)>0)
+ 	{

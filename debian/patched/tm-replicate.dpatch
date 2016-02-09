@@ -1,0 +1,4 @@
+patching file modules/tm/t_fwd.c
+Hunk #1 succeeded at 1976 (offset 11 lines).
+patching file modules/tm/t_fwd.h
+patching file modules/tm/tm.c

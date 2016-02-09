@@ -1,0 +1,40 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## cr_decrease_logging.dpatch by  <lbalaceanu@dxbu-czc1524bcy>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/carrierroute/cr_config.c ui-siprouter/modules/carrierroute/cr_config.c
+--- ui-siprouter~/modules/carrierroute/cr_config.c	2014-08-20 13:36:57.000000000 +0200
++++ ui-siprouter/modules/carrierroute/cr_config.c	2014-08-20 13:58:51.213393358 +0200
+@@ -402,7 +402,7 @@
+ 				}
+ 				backup = target_options[TO_ID_BACKUP].value.int_data;
+ 
+-				LM_ERR("\n Adding route to tree <'%.*s'>: prefix_name:%s\n,"
++				LM_DBG("\n Adding route to tree <'%.*s'>: prefix_name:%s\n,"
+ 						" max_targets =%d\n, prob=%f\n, rewr_host=%s\n,"
+ 						" strip=%i\n, rwr_prefix=%s\n, rwr_suff=%s\n,"
+ 						" status=%i\n, hash_index=%i\n, comment=%s \n",
+@@ -452,7 +452,7 @@
+ 		goto errclose;
+ 	}
+ 
+-	LM_ERR("File parsed successfully \n");
++	LM_INFO("File parsed successfully \n");
+ 	fclose(file);
+ 	return 0;
+ errclose:
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/carrierroute/parser_carrierroute.c ui-siprouter/modules/carrierroute/parser_carrierroute.c
+--- ui-siprouter~/modules/carrierroute/parser_carrierroute.c	2014-08-20 13:36:57.000000000 +0200
++++ ui-siprouter/modules/carrierroute/parser_carrierroute.c	2014-08-20 13:37:04.000000000 +0200
+@@ -377,7 +377,7 @@
+ 			ret = SUCCESSFUL_PARSING;
+ 		break;
+ 	default:
+-		LM_ERR("Wrong number of tokens in line: %s\n", data.s);
++		LM_DBG("Wrong number of tokens in line: %s\n", data.s);
+ 	}
+ 
+ 	if ( SUCCESSFUL_PARSING == ret ){

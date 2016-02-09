@@ -1,0 +1,19 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## set_fifo_path.dpatch by  <Pawel Kuzak <pawel.kuzak@schlund.de>>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/utils/kamctl/kamctlrc ui-siprouter/utils/kamctl/kamctlrc
+--- ui-siprouter~/utils/kamctl/kamctlrc	2014-05-22 10:51:19.000000000 +0200
++++ ui-siprouter/utils/kamctl/kamctlrc	2014-05-22 10:52:06.317915304 +0200
+@@ -122,7 +122,7 @@
+ # CTLENGINE="FIFO"
+ 
+ ## path to FIFO file
+-# FIFOPATH="/tmp/kamailio_fifo"
++FIFOPATH="/var/run/kamailio/kamailio.fifo"
+ 
+ ## check ACL names; default on (1); off (0)
+ # VERIFY_ACL=1

@@ -1,0 +1,19 @@
+patching file forward.c
+patching file modules/siptrace/sipcapture.h
+patching file modules/siptrace/siptrace.c
+Hunk #10 succeeded at 747 (offset 7 lines).
+Hunk #11 succeeded at 764 (offset 7 lines).
+Hunk #12 succeeded at 904 (offset 7 lines).
+Hunk #13 succeeded at 1062 (offset 7 lines).
+Hunk #14 succeeded at 1244 (offset 7 lines).
+Hunk #15 succeeded at 1315 (offset 7 lines).
+Hunk #16 succeeded at 1424 (offset 7 lines).
+Hunk #17 succeeded at 1510 (offset 7 lines).
+Hunk #18 succeeded at 1562 (offset 7 lines).
+Hunk #19 succeeded at 1584 (offset 7 lines).
+Hunk #20 succeeded at 1612 (offset 7 lines).
+Hunk #21 succeeded at 1674 (offset 7 lines).
+Hunk #22 succeeded at 1793 (offset 7 lines).
+patching file modules/tm/t_reply.c
+Hunk #1 succeeded at 1801 (offset -10 lines).
+Hunk #2 succeeded at 1986 (offset -10 lines).

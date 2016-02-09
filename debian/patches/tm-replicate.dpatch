@@ -1,0 +1,242 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## tm-replicate.dpatch by  <root@dxbu-6dpgx4j-ddinu>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/t_fwd.c ui-siprouter/modules/tm/t_fwd.c
+--- ui-siprouter~/modules/tm/t_fwd.c	2014-06-02 10:24:52.000000000 +0200
++++ ui-siprouter/modules/tm/t_fwd.c	2014-06-02 10:24:58.000000000 +0200
+@@ -1965,20 +1965,65 @@
+ 
+ /* WARNING: doesn't work from failure route (deadlock, uses t_relay_to which
+  *  is failure route unsafe) */
+-int t_replicate(struct sip_msg *p_msg,  struct proxy_l *proxy, int proto )
++int t_replicate(struct sip_msg *p_msg,  struct proxy_l *proxy, int proto, str* r_uri )
+ {
+-	/* this is a quite horrible hack -- we just take the message
+-	   as is, including Route-s, Record-route-s, and Vias ,
+-	   forward it downstream and prevent replies received
+-	   from relaying by setting the replication/local_trans bit;
++        /* update request uri if wanted */
++        struct cell* t;
++        int ret=0;
++        str old_uri={NULL, 0};
++        if(r_uri && r_uri->s){
++                /* free any allocated new_uri */
++                if (p_msg->new_uri.s  &&  p_msg->new_uri.len) {
++                        old_uri = p_msg->new_uri;
++                        p_msg->new_uri.s = 0;
++                        p_msg->new_uri.len = 0;
++                        p_msg->parsed_uri_ok = 0;
++                }
++                p_msg->new_uri.s = r_uri->s;
++                p_msg->new_uri.len = r_uri->len;
++                p_msg->parsed_uri_ok = 0;
++        }
+ 
+-		nevertheless, it should be good enough for the primary
+-		customer of this function, REGISTER replication
++        t = get_t();
++
++        if( !t || t == T_UNDEFINED ){
++                /* do not call t_relay_to in failure_route, transaction should exist in failure route */
++                if(route_type == FAILURE_ROUTE) {
++                        LM_WARN("Undefined transaction in failure route\n");
++                        ret = -1;
++                        goto done;
++                }
++                /* no current transaction create new one */
++	        /* this is a quite horrible hack -- we just take the message
++>---           as is, including Route-s, Record-route-s, and Vias ,
++>---           forward it downstream and prevent replies received
++>---           from relaying by setting the replication/local_trans bit;
++
++>--->---   nevertheless, it should be good enough for the primary
++>--->---   customer of this function, REGISTER replication
++
++>--->---   if we want later to make it thoroughly, we need to
++>--->---   introduce delete lumps for all the header fields above
++>---        */
++                ret = t_relay_to(p_msg, proxy, proto, 1 /* replicate */);
++        } else {
++                if( p_msg->REQ_METHOD == METHOD_ACK ) {
++                        /* local ACK */
++                        ret = -1;
++                        goto done;
++                }
++                t->flags |= T_IS_LOCAL_FLAG;
++                ret = t_forward_nonack(t, p_msg, proxy, proto);
++                if(ret >= 0){
++                        /* success */
++                        ret = 0;
++                }
++        }
++done:
++        /* restore request uri */
++        if(r_uri && r_uri->len) p_msg->new_uri = old_uri;
++        return ret;
+ 
+-		if we want later to make it thoroughly, we need to
+-		introduce delete lumps for all the header fields above
+-	*/
+-	return t_relay_to(p_msg, proxy, proto, 1 /* replicate */);
+ }
+ 
+ /* fixup function for reparse_on_dns_failover modparam */
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/t_fwd.h ui-siprouter/modules/tm/t_fwd.h
+--- ui-siprouter~/modules/tm/t_fwd.h	2014-06-02 10:24:52.000000000 +0200
++++ ui-siprouter/modules/tm/t_fwd.h	2014-06-02 10:24:58.000000000 +0200
+@@ -54,7 +54,7 @@
+ void t_on_branch(unsigned int go_to);
+ unsigned int get_on_branch(void);
+ int t_replicate_uri(struct sip_msg *p_msg, str *suri);
+-int t_replicate(struct sip_msg *p_msg, struct proxy_l * proxy, int proto);
++int t_replicate(struct sip_msg *p_msg, struct proxy_l * proxy, int proto, str* r_uri);
+ /*  -- not use outside t_fwd.c for noe
+ char *print_uac_request( struct cell *t, struct sip_msg *i_req,
+     int branch, str *uri, unsigned int *len, struct dest_info *dst);
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/tm.c ui-siprouter/modules/tm/tm.c
+--- ui-siprouter~/modules/tm/tm.c	2014-06-02 10:24:52.000000000 +0200
++++ ui-siprouter/modules/tm/tm.c	2014-06-02 10:25:21.286916088 +0200
+@@ -233,12 +233,16 @@
+ #endif
+ inline static int w_t_relay_to_avp(struct sip_msg* msg, char* str,char*);
+ inline static int w_t_relay_to(struct sip_msg* msg, char* str,char*);
++inline static int w_t_replicate_msg(struct sip_msg *p_msg,
++				char *proxy, /*nothing expected*/
++				char *_foo /*nothing expected*/ );
+ inline static int w_t_replicate_uri( struct sip_msg  *p_msg ,
+ 				char *uri,       /* sip uri as string or variable */
+ 				char *_foo       /* nothing expected */ );
+ inline static int w_t_replicate( struct sip_msg  *p_msg ,
+ 				char *proxy, /* struct proxy_l *proxy expected */
+-				char *_foo       /* nothing expected */ );
++				char *_foo,       /* nothing expected */
++				char * r_uri);
+ inline static int w_t_replicate_udp( struct sip_msg  *p_msg ,
+ 				char *proxy, /* struct proxy_l *proxy expected */
+ 				char *_foo       /* nothing expected */ );
+@@ -361,9 +365,13 @@
+ 	{"t_relay_to_sctp",       w_t_relay_to_sctp_uri,    0, 0,
+ 			REQUEST_ROUTE|FAILURE_ROUTE},
+ #endif
++	{"t_replicate",		w_t_replicate_msg,	0, 0,
++			REQUEST_ROUTE},
+ 	{"t_replicate",        w_t_replicate_uri,       1, fixup_var_str_1,
+ 			REQUEST_ROUTE},
+-	{"t_replicate",        w_t_replicate,           2, fixup_hostport2proxy,
++	{"t_replicate",        (cmd_function)w_t_replicate,           2, fixup_hostport2proxy,
++			REQUEST_ROUTE},
++	{"t_replicate",        (cmd_function)w_t_replicate,           3, fixup_hostport2proxy,
+ 			REQUEST_ROUTE},
+ 	{"t_replicate_udp",    w_t_replicate_udp,       2, fixup_hostport2proxy,
+ 			REQUEST_ROUTE},
+@@ -698,6 +706,7 @@
+ 	struct proxy_l *proxy;
+ 	action_u_t *a;
+ 	str s;
++	str* suri;
+ 
+ 	DBG("TM module: fixup_hostport2proxy(%s, %d)\n", (char*)*param, param_no);
+ 	if (param_no==1){
+@@ -723,8 +732,15 @@
+ 
+ 		a->u.data=proxy;
+ 		return 0;
++        } else if(param_no==3) {
++			/* r_uri */
++			suri = pkg_malloc(sizeof(str));
++			suri->s = (char*)*param;
++			suri->len = strlen(suri->s);
++			*param = suri;
++			return 0; 
+ 	} else {
+-		LOG(L_ERR,"ERROR: fixup_hostport2proxy called with parameter #<>{1,2}\n");
++		LOG(L_ERR,"ERROR: fixup_hostport2proxy called with parameter #<>{1,2,3}\n");
+ 		return E_BUG;
+ 	}
+ }
+@@ -1624,15 +1640,22 @@
+ 			return -1;
+ 		}
+ 
+-		r = t_replicate(msg, proxy, proxy->proto);
++		r = t_replicate(msg, proxy, proxy->proto, NULL);
+ 		free_proxy(proxy);
+ 		pkg_free(proxy);
+ 	} else {
+-		r = t_replicate(msg, NULL, 0);
++		r = t_replicate(msg, NULL, 0, NULL);
+ 	}
+ 	return r;
+ }
+ 
++inline static int w_t_replicate_msg( struct sip_msg *p_msg,
++               char *proxy, /*nothing*/
++               char *_foo /*nothing*/ )
++{
++   return t_replicate(p_msg, (struct proxy_l *) 0, p_msg->rcv.proto, NULL );
++}
++
+ inline static int w_t_replicate_uri(struct sip_msg  *msg ,
+ 				char *uri,       /* sip uri as string or variable */
+ 				char *_foo       /* nothing expected */ )
+@@ -1649,16 +1672,17 @@
+ 
+ inline static int w_t_replicate( struct sip_msg  *p_msg ,
+ 	char *proxy, /* struct proxy_l *proxy expected */
+-	char *_foo       /* nothing expected */ )
++	char *_foo,       /* probably the port - but is not needed */ 
++	char * r_uri     /* request_uri */)
+ {
+-	return t_replicate(p_msg, ( struct proxy_l *) proxy, p_msg->rcv.proto );
++	return t_replicate(p_msg, ( struct proxy_l *) proxy, p_msg->rcv.proto, (str*)r_uri );
+ }
+ 
+ inline static int w_t_replicate_udp( struct sip_msg  *p_msg ,
+ 	char *proxy, /* struct proxy_l *proxy expected */
+ 	char *_foo       /* nothing expected */ )
+ {
+-	return t_replicate(p_msg, ( struct proxy_l *) proxy, PROTO_UDP );
++	return t_replicate(p_msg, ( struct proxy_l *) proxy, PROTO_UDP, NULL );
+ }
+ 
+ 
+@@ -1667,7 +1691,7 @@
+ 	char *proxy, /* struct proxy_l *proxy expected */
+ 	char *_foo       /* nothing expected */ )
+ {
+-	return t_replicate(p_msg, ( struct proxy_l *) proxy, PROTO_TCP );
++	return t_replicate(p_msg, ( struct proxy_l *) proxy, PROTO_TCP, NULL );
+ }
+ #endif
+ 
+@@ -1677,7 +1701,7 @@
+ 	char *proxy, /* struct proxy_l *proxy expected */
+ 	char *_foo       /* nothing expected */ )
+ {
+-	return t_replicate(p_msg, ( struct proxy_l *) proxy, PROTO_TLS );
++	return t_replicate(p_msg, ( struct proxy_l *) proxy, PROTO_TLS , NULL);
+ }
+ #endif
+ 
+@@ -1687,7 +1711,7 @@
+ 	char *proxy, /* struct proxy_l *proxy expected */
+ 	char *_foo       /* nothing expected */ )
+ {
+-	return t_replicate(p_msg, ( struct proxy_l *) proxy, PROTO_SCTP );
++	return t_replicate(p_msg, ( struct proxy_l *) proxy, PROTO_SCTP, NULL );
+ }
+ #endif
+ 
+@@ -1700,7 +1724,7 @@
+ 	int r = -1;
+ 	proxy = t_protoaddr2proxy(proto_par, addr_par);
+ 	if (proxy) {
+-		r = t_replicate(p_msg, proxy, proxy->proto);
++		r = t_replicate(p_msg, proxy, proxy->proto, NULL);
+ 		free_proxy(proxy);
+ 		pkg_free(proxy);
+ 	}

@@ -1,0 +1,19 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## extend_pv_size.dpatch by  <root@dxbu-6dpgx4j-ddinu>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/pvapi.c ui-siprouter/pvapi.c
+--- ui-siprouter~/pvapi.c	2013-01-08 13:26:38.000000000 +0200
++++ ui-siprouter/pvapi.c	2013-01-08 13:27:54.849744042 +0200
+@@ -1799,7 +1799,7 @@
+  * - buffer to print PVs
+  */
+ static char **_pv_print_buffer = NULL;
+-#define PV_DEFAULT_PRINT_BUFFER_SIZE 1024
++#define PV_DEFAULT_PRINT_BUFFER_SIZE 1024<<1
+ static int _pv_print_buffer_size  = PV_DEFAULT_PRINT_BUFFER_SIZE;
+ /* 6 mod params + 4 direct usage from mods */
+ #define PV_DEFAULT_PRINT_BUFFER_SLOTS 10

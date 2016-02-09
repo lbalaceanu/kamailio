@@ -1,0 +1,67 @@
+#! /bin/bash
+#
+# $Id: openser.postinst,v 1.1 2006/08/12 15:37:45 jblache Exp $
+
+PKG=ui-kamailio
+DEFAULTS=/etc/default/ui-kamailio
+HOMEDIR=/home/ser
+
+set -e
+
+# summary of how this script can be called:
+#        * <postinst> `configure' <most-recently-configured-version>
+#        * <old-postinst> `abort-upgrade' <new version>
+#        * <conflictor's-postinst> `abort-remove' `in-favour' <package>
+#          <new-version>
+#        * <deconfigured's-postinst> `abort-deconfigure' `in-favour'
+#          <failed-install-package> <version> `removing'
+#          <conflicting-package> <version>
+# for details, see http://www.debian.org/doc/debian-policy/ or
+# the debian-policy package
+#
+# quoting from the policy:
+#     Any necessary prompting should almost always be confined to the
+#     post-installation script, and should be protected with a conditional
+#     so that unnecessary prompting doesn't happen if a package's
+#     installation fails and the `postinst' is called with `abort-upgrade',
+#     `abort-remove' or `abort-deconfigure'.
+
+case "$1" in
+    configure)
+        adduser --quiet --system --group --disabled-password --uid 5000 \
+                --shell /bin/false --gecos "OpenSER" \
+                --home $HOMEDIR openser || true
+	chown openser:root /etc/kamailio
+
+	PARALLEL_TS_CONF=/etc/parallel_ts/test_user.conf
+	if [ -e $PARALLEL_TS_CONF ]; then
+		echo "Change ui-kamailio init.d file according to the parallel TS configuration file"
+		source $PARALLEL_TS_CONF
+
+		if [ -z ${KAM_NAME} ] ; then
+			echo "Some test_env_vars are not set"
+			exit 1
+		fi
+		sed -r "s/^DAEMON=\/usr\/sbin\/kamailio$/DAEMON=\/usr\/sbin\/${KAM_NAME}/g" -i /etc/init.d/ui-kamailio
+		if [[ ! -L /usr/sbin/${KAM_NAME} ]]; then
+			set +e
+			ln -s /usr/sbin/kamailio /usr/sbin/${KAM_NAME}
+			set -e
+		fi
+	else
+		echo "No parallel TS configuration file - /etc/init.d/ui-kamailio not changed"
+	fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+

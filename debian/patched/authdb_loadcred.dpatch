@@ -1,0 +1,3 @@
+patching file modules/auth_db/authorize.c
+Hunk #1 succeeded at 302 with fuzz 1 (offset 85 lines).
+Hunk #2 succeeded at 310 (offset 84 lines).

@@ -1,0 +1,4 @@
+var/run/kamailio
+home/ser
+home/ser/logs
+etc/kamailio/cfg

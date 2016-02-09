@@ -1,0 +1,4 @@
+patching file modules/tm/h_table.c
+Hunk #1 succeeded at 370 (offset 4 lines).
+patching file modules/tm/t_hooks.c
+patching file modules/tm/t_hooks.h

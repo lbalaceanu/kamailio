@@ -1,0 +1,233 @@
+ui-kamailio (4.1.9~ui70+2) wheezy-ui; urgency=medium
+
+  * Fix for segfault at rtpengine mod_destroy: replacing lock for doing lockrelease (crt_list to last_list)
+  * Update dbtables comit for the coredump when kamailio shutdown (better code arrangement)
+  * Remove trainling rtpengine.c.orig file added by previous version (no impact on functionality)
+  * Remove trailing rtpengine.c.orig file additions added by previous version (no impact on functionality)
+  * Close sockets before building new ones
+  * built using upstream git revision '4.1' from
+    'git://git.sip-router.org/sip-router' branch '4.1' - Commit
+    '804b7f19dc1b95f9226711125d0239574f0aa0a9'
+
+ -- Pawel Kuzak <pawel.kuzak@schlund.de>  Wed, 27 Jan 2016 13:37:18 +0100
+
+ui-kamailio (4.1.9~ui70+1) wheezy-ui; urgency=medium
+
+  * Add 'kamctl fifo reload' command
+  * Add weight column for the rtpengine node table
+  * Allow simple URL for url column
+  * More checks for the rtp node address URL
+  * Update the behaviour to allow op for all disabled machines (manually or timeout/broken)
+  * Add per row hash locks to the hashtable API
+  * _destroy() changes to do saniti checks + memory free when possible
+  * Add support for deleting the nodes from database table; hide them actually
+  * Fix tmx counters
+  * fixup debugger patch application after upstream commit eeee655ee6eb1698aef2f788a271d68a663bde73
+  * add debugger mi fifo commands for set/get level/facility
+  * Fix reported issue https://github.com/kamailio/kamailio/issues/446 for our svn 4.1 kamailio
+  * Comment rtpengine_delete_handling_improved which has been uncommented by mistake
+  * Add also rpc commands additionally to the fifos
+  * delete this old patch. the new one contains also rpc + fifo
+  * Destroy the debugger module hashtable, on module_destroy(), to avoid shm memory leaks
+  * dbg_sip_msg() add checks for request route; reenable the quickfix; make sure you load debugger.so before any other module
+  * Fix dbg_sip_msg() segfault when no params are present
+  * init and dealloc rtpengine hastable locks. Right now they are only alloc and destroy
+  * Add locks for rtpengine db story; rebuild rtpp_socks for each process
+  * built using upstream git revision '4.1' from
+    'git://git.sip-router.org/sip-router' branch '4.1' - Commit
+    '2fc778f350b85fce9ba582ccf5d396d7962b2d0b'
+
+ -- Pawel Kuzak <pawel.kuzak@schlund.de>  Fri, 22 Jan 2016 14:27:00 +0100
+
+ui-kamailio (4.1.8~ui70+9) wheezy-ui; urgency=low
+
+  * rebuild from upstream 
+  * built using upstream git revision '4.1' from
+    'git://git.kamailio.org/kamailio' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Verena Kahmann <verena.kahmann@1und1.de>  Tue, 03 Nov 2015 16:56:09 +0100
+
+ui-kamailio (4.1.8~ui70+8) wheezy-ui; urgency=low
+
+  * change LM_WARN to LM_NOTICE for pdb patch
+  * built using upstream git revision '4.1' from
+    'git://git.kamailio.org/kamailio' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Verena Kahmann <verena.kahmann@1und1.de>  Thu, 22 Oct 2015 15:58:45 +0200
+
+ui-kamailio (4.1.8~ui70+7) wheezy-ui; urgency=low
+
+  * set memory to 2048 MB
+  * built using upstream git revision '4.1' from
+    'git://git.kamailio.org/kamailio' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Verena Kahmann <verena.kahmann@1und1.de>  Thu, 22 Oct 2015 12:15:04 +0200
+
+ui-kamailio (4.1.8~ui70+6) wheezy-ui; urgency=low
+
+  * modified init script for checking mysql stored function execution rights (SIPPROXY-176)
+  * built using upstream git revision '4.1' from
+    'git://git.kamailio.org/kamailio' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Verena Kahmann <verena.kahmann@1und1.de>  Mon, 19 Oct 2015 16:08:57 +0200
+
+ui-kamailio (4.1.8~ui70+5) wheezy-ui; urgency=low
+
+  * dialog timeout fake msg build (not actually used)
+  * modified db_timestamp_convert patch: setting to 1970-01-01 00:00 if time conversion fails
+  * added rtpengine_delete_flags: delete command considers call-id and from-tag from command flags if available
+  * built using upstream git revision '4.1' from
+    'git://git.kamailio.org/kamailio' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Verena Kahmann <verena.kahmann@1und1.de>  Fri, 16 Oct 2015 12:55:35 +0200
+
+ui-kamailio (4.1.8~ui70+4) wheezy-ui; urgency=low
+
+  * Temporary dbg_sip_msg() update to avoid kamailio crash
+  * Fix segfault when rtpengine comand params were wrong. See KAMAILIO-27
+  * built using upstream git revision '4.1' from
+    'git://git.kamailio.org/kamailio' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Verena Kahmann <verena.kahmann@1und1.de>  Wed, 16 Sep 2015 12:54:17 +0200
+
+ui-kamailio (4.1.8~ui70+3) wheezy-ui; urgency=low
+
+  * Updated and simplified the cfa bug patch. Needs to be tested on prelive.
+  * Decrease the log level of proxy_cfa_bug patch to LM_INFO because the ser.log gets too big on a nightly test run(only proxy_cfa_crash test makes ca 850M)
+  * built using upstream git revision '4.1' from 'git://git.sip-router.org/sip-router' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Pawel Kuzak <pawel.kuzak@schlund.de>  Mon, 17 Aug 2015 14:14:19 +0200
+
+ui-kamailio (4.1.8~ui70+2) wheezy-ui; urgency=low
+
+  * Fixed the deadlocks for cfa bug. Needs to be tested also on prelive system.
+  * built using upstream git revision '4.1' from 'git://git.sip-router.org/sip-router' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Pawel Kuzak <pawel.kuzak@schlund.de>  Tue, 11 Aug 2015 15:56:31 +0200
+
+ui-kamailio (4.1.8~ui70+1) wheezy-ui; urgency=low
+
+  * Divided multi_reg patch in upstream and internal part
+  * Changed LM_GEN2 formatting for acc module to match the old 3.1 formatting; some tests were failing for 4.1 because of this
+  * add patch for conversion of MYSQL_TYPE_TIMESTAMP
+  * Removed logrotate stuff from package - it is going to be maintained by Puppet
+  * Fix kamailio restarting problem due to missing symbols in p_usrloc
+  * Sanity check on start-up: Check for stored functions and execution rights before starting
+  * stop building outdated packages
+  * add patch for dialog: return from print_lists debug function
+  * enable dialog_cfabug patch again
+  * built using upstream git revision '4.1' from
+    'git://kamailio.org/kamailio' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Verena Kahmann <verena.kahmann@1und1.de>  Tue, 21 Jul 2015 15:42:13 +0200
+
+ui-kamailio (4.1.7~ui60+2) squeeze-ui; urgency=low
+
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Lucian.Balaceanu <lucian.balaceanu@1and1.ro>  Fri, 19 Jun 2015 16:08:23 +0300
+
+ui-kamailio (4.1.7~ui70+0exp281115) wheezy-ui-experimental; urgency=low
+
+  * Get rid of irritating error message for existing symlink in kamilio postinst
+  * small change because upstream src has the \n inside the log fixed
+  * Added the patch which allows to set the DNS mode in .cfg file, for the DNS queried entries
+  * added suport for the dbg_sip_msg() config function for 4.1
+  * added suport for the mod_facility config parameter function in debugger module for 4.1
+  * Added the ping fifo command (and updated the other two fifo commands to accept proxy/all as parameters)
+  * New protocol for kama pdb_module (to communicate with the pdb_server)
+  * Porting rtpengine and cdr dlg duration patches
+  * added userblacklist fifo commands for 4.1
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui-experimental
+
+ -- Lucian Balaceanu <lucian.balaceanu@1and1.ro>  Fri, 19 Jun 2015 14:55:20 +0300
+
+ui-kamailio (4.1.7~ui70+1) wheezy-ui; urgency=low
+
+  * Latest siptrace.dpatch: stateful replies tracing
+  * built using upstream git revision 'HEAD' from
+    '/home/lbalaceanu/sources/sip-router/.git' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Lucian Balaceanu <lucian.balaceanu@1and1.ro>  Wed, 10 Dec 2014 10:28:01 +0200
+
+ui-kamailio (4.1.7~ui70+0exp281114) wheezy-ui-experimental; urgency=low
+
+  * replikations
+  * onsend_route for stateless replies is activated once again
+  * Added patch for rtpengine module
+  * built using upstream git revision 'HEAD' from 'git://git.sip-router.org/sip-router' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui-experimental
+
+ -- Pawel Kuzak <pawel.kuzak@schlund.de>  Tue, 18 Nov 2014 12:27:41 +0100
+
+ui-kamailio (4.1.6~ui70+2) wheezy-ui; urgency=low
+
+  * Fix dialog_cfabug patch: The internal_get_dlg() function locks a dialog table slot everytime it is called, but releases the lock conditionally based on the value of the function argument 'mode'. If the lock is not released in the function, it is later released outside the funct
+  ion. In the patch, we have to take care also to release the slot outside the function for the mangled CallID.
+  * built using upstream git revision 'HEAD' from 'git://git.sip-router.org/sip-router' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Pawel Kuzak <pawel.kuzak@schlund.de>  Mon, 13 Oct 2014 12:09:52 +0200
+
+ui-kamailio (4.1.6~ui70+1) wheezy-ui; urgency=low
+
+  * Updated patches due to upstream work on presence and dialog module (patches could not be applied after that)
+  * Init script: Remove check for lock-file - it was not really useful
+  * Strucure initialization fixup
+  * built using upstream git revision 'HEAD' from 'git://git.sip-router.org/sip-router' branch '4.1'
+  * MINI_BUILDD: AUTO_BACKPORTS: squeeze-ui
+
+ -- Pawel Kuzak <pawel.kuzak@schlund.de>  Thu, 18 Sep 2014 12:04:33 +0200
+
+ui-kamailio (4.1.5~ui70+2) wheezy-ui; urgency=low
+
+  * Moved some cr parser messages from ERR to DBG
+  * built using upstream git revision 'HEAD' from 'git://git.sip-router.org/sip-router' branch '4.1'
+
+ -- Pawel Kuzak <pawel.kuzak@schlund.de>  Wed, 20 Aug 2014 12:22:17 +0200
+
+ui-kamailio (4.1.4~ui60+1) squeeze-ui; urgency=low
+
+  * Fixed patch cdr_extra2strar_fix where the initialization of counter variables was missing
+  * Updated patch acc-cdr_add-expire-log because patched files are also changed by cdr_extra2strar_fix
+  * Fixed permission error message when scp-ing on minibuildd in sp-release.sh where file permissions where tried to be fixed on target machine via ssh
+  * Optimized sp-release.sh script a little bit: Including upstream version in the changelog version string when you are asked to update the changelog. Added FIXME placeholders which need to be replaced depending on your needs. Removed code responsible for updating the NEWS file (which we do not use).
+  * Changed cdr_extra2strar_fix patch: Added removal of unused code (static_detector stuff)
+  * Updated ui-li and sp-tkuv: Modules were upstream moved from modules_k directory to modules directory.
+  * Added patch cdr_extra2strar_fix: During CDR generation stack memory was used. When more then a specific amount of extra CDR values was used (in our test case more than 12), stack memory got reused and values in cdr_value_array got overwritten
+  * Deleted unused patch
+  * Updated pv_trans_sha: Patched file was upstream moved from modules_k directory to modules directory.
+  * Renamed patch sipcapture_mt to sipcapture_bad_msgs_and_db_retries and updated it: Most parts of the original patch (e.g. the possibility to use multiple tables) have been moved upstream 
+  * Updated 00list
+  * Updated siptrace patch: There were lot of changes upstream in the corresponding files
+  * Updated patch tm-replicate: Patched file tm.c was changed upstream a little bit so the line numbers in the patch did not fit anymore.
+  * Updated patch reg_multi_handling: Patched file was upstream moved from modules_k directory to modules directory. There were also several changes in the upstream files which had to be considered in the patch.
+  * Deleted patch uac_replace because it is already upstream
+  * Updated patch presence_mwid: Patched file was upstream moved from modules_k directory to modules directory. Deleted unused patches.
+  * Deleted patch permissions_domain_name cause it is already upstream
+  * Changed acc-cdr_add-expire-log patch: Moved function definition out of #ifdef block
+  * Updated patch userblacklist-check_whitelist: Patched file was upstream moved from modules_k directory to modules directory
+  * Deleted patch cr_uri_already_used because it is already upstream. Removed it from 00list.
+  * Deleted patch cr_reload_sercmd because it is already upstream. Removed it from 00list.
+  * Updated patch accouting-changed-logging: Patched file was upstream moved from modules_k directory to modules directory
+  * Updated patch dialog_cfabug: Patched file was upstream moved from modules_k directory to modules directory
+  * Updated patch authdb_loadcred: Patched file was upstream moved from modules_k directory to modules directory
+  * Replaced openserctl_moni patch with kamcailio_ctl_moni patch
+  * Modified acc-cdr_add-expire-log so it can be applied to 4.1 sources
+  * Added pv_trans_sha patch and removed outdated files related to that patch
+  * Removed patch change_flavor. Changed rules file instead where I have added FLAVOUR=kamailio as an option for the make command
+  * Replaced old-fifo-name patch with set_fifo_path patch
+  * Initial commit
+  * built using upstream git revision 'HEAD' from 'git://git.sip-router.org/sip-router' branch '4.1'
+
+ -- Patric Marschall <patric.marschall@1und1.de>  Wed, 06 Aug 2014 10:59:48 +0200

@@ -1,0 +1,58 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## kamailio_ctl_moni.dpatch by  <Pawel Kuzak <pawel.kuzak@schlund.de>>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/utils/kamctl/kamctl.fifo ui-siprouter/utils/kamctl/kamctl.fifo
+--- ui-siprouter~/utils/kamctl/kamctl.fifo	2014-05-23 10:36:57.000000000 +0200
++++ ui-siprouter/utils/kamctl/kamctl.fifo	2014-05-23 10:40:16.432230298 +0200
+@@ -163,9 +163,17 @@
+ 		cat < $path | filter_fl &
+ 		cat > $FIFOPATH <<EOF
+ :get_statistics:$name
++received_replies
++relayed_replies
++local_replies
+ UAS_transactions
+ UAC_transactions
+ inuse_transactions
++2xx_transactions
++3xx_transactions
++4xx_transactions
++5xx_transactions
++6xx_transactions
+ 
+ EOF
+ 		wait
+@@ -178,16 +186,22 @@
+ sent_replies
+ sent_err_replies
+ received_ACKs
++1xx_replies
++2xx_replies
++3xx_replies
++4xx_replies
++5xx_replies
++6xx_replies
+ 
+ EOF
+ 		wait
+ 		echo
+ 
+-		mecho "UsrLoc Stats: "
++		mecho "Dialog Statistics: "
+ 		cat < $path | filter_fl &
+ 		cat > $FIFOPATH <<EOF
+ :get_statistics:$name
+-usrloc:
++dialog:
+ 
+ EOF
+ 		wait
+@@ -201,4 +215,3 @@
+ }
+ 
+ KAMAILIO_MONITOR=fifo_kamailio_monitor
+-

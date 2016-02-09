@@ -1,0 +1,563 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## debugger_mod_facility_cfg_param.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/dprint.c ui-siprouter/dprint.c
+--- ui-siprouter~/dprint.c	2015-06-10 17:20:42.000000000 +0300
++++ ui-siprouter/dprint.c	2015-06-10 17:21:20.566893470 +0300
+@@ -111,12 +111,15 @@
+  */
+ 
+ /* value for unset local log level  */
+-#define UNSET_LOCAL_DEBUG_LEVEL	-255
++#define UNSET_LOCAL_DEBUG_LEVEL	    -255
++#define UNSET_LOCAL_DEBUG_FACILITY  -255
+ 
+ /* the local debug log level */
+ static int _local_debug_level = UNSET_LOCAL_DEBUG_LEVEL;
++static int _local_debug_facility = UNSET_LOCAL_DEBUG_FACILITY;
+ /* callback to get per module debug level */
+ static get_module_debug_level_f _module_debug_level = NULL;
++static get_module_debug_facility_f _module_debug_facility = NULL;
+ 
+ /**
+  * @brief set callback function for per module debug level
+@@ -126,12 +129,17 @@
+ 	_module_debug_level = f;
+ }
+ 
++void set_module_debug_facility_cb(get_module_debug_facility_f f)
++{
++	_module_debug_facility = f;
++}
++
+ /**
+  * @brief return the log level - the local one if it set,
+  *   otherwise the global value
+  */
+ int get_debug_level(char *mname, int mnlen) {
+-	int mlevel = L_DBG;
++	int mlevel;
+ 	/*important -- no LOGs inside, because it will loop */
+ 	if(unlikely(_module_debug_level!=NULL && mnlen>0)) {
+ 		if(_module_debug_level(mname, mnlen, &mlevel)==0) {
+@@ -143,6 +151,23 @@
+ }
+ 
+ /**
++ * @brief return the log facility - the local one if it set,
++ *   otherwise the global value
++ */
++int get_debug_facility(char *mname, int mnlen) {
++	int mfacility;
++	/*important -- no LOGs inside, because it will loop */
++	if(unlikely(_module_debug_facility!=NULL && mnlen>0)) {
++		if(_module_debug_facility(mname, mnlen, &mfacility)==0) {
++			return mfacility;
++		}
++	}
++	return (_local_debug_facility != UNSET_LOCAL_DEBUG_FACILITY) ?
++				_local_debug_facility : cfg_get(core, core_cfg, log_facility);
++}
++
++
++/**
+  * @brief set the local debug log level
+  */
+ void set_local_debug_level(int level)
+@@ -158,6 +183,22 @@
+ 	_local_debug_level = UNSET_LOCAL_DEBUG_LEVEL;
+ }
+ 
++/**
++ * @brief set the local debug log facility
++ */
++void set_local_debug_facility(int facility)
++{
++	_local_debug_facility = facility;
++}
++
++/**
++ * @brief reset the local debug log facility
++ */
++void reset_local_debug_facility(void)
++{
++	_local_debug_facility = UNSET_LOCAL_DEBUG_FACILITY;
++}
++
+ typedef struct log_level_color {
+ 	char f;
+ 	char b;
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/dprint.h ui-siprouter/dprint.h
+--- ui-siprouter~/dprint.h	2015-06-10 17:20:45.000000000 +0300
++++ ui-siprouter/dprint.h	2015-06-10 17:21:23.294893411 +0300
+@@ -130,10 +130,15 @@
+ 
+ /** @brief per process debug level handling */
+ int get_debug_level(char *mname, int mnlen);
++int get_debug_facility(char *mname, int mnlen);
+ void set_local_debug_level(int level);
++void set_local_debug_facility(int facility);
+ void reset_local_debug_level(void);
++void reset_local_debug_facility(void);
+ typedef int (*get_module_debug_level_f)(char *mname, int mnlen, int *mlevel);
++typedef int (*get_module_debug_facility_f)(char *mname, int mnlen, int *mfacility);
+ void set_module_debug_level_cb(get_module_debug_level_f f);
++void set_module_debug_facility_cb(get_module_debug_facility_f f);
+ 
+ #define is_printable(level) (get_debug_level(LOG_MNAME, LOG_MNAME_LEN)>=(level))
+ extern struct log_level_info log_level_info[];
+@@ -204,7 +209,7 @@
+ 							syslog(LOG2SYSLOG_LEVEL(level) | \
+ 								   (((facility) != DEFAULT_FACILITY) ? \
+ 									(facility) : \
+-									cfg_get(core, core_cfg, log_facility)), \
++								    get_debug_facility(LOG_MNAME, LOG_MNAME_LEN)), \
+ 									"%s: %s" fmt, LOG_LEVEL2NAME(level),\
+ 									(prefix), __VA_ARGS__); \
+ 						} \
+@@ -220,13 +225,13 @@
+ 								syslog(LOG2SYSLOG_LEVEL(L_ALERT) | \
+ 									   (((facility) != DEFAULT_FACILITY) ? \
+ 										(facility) : \
+-										cfg_get(core, core_cfg, log_facility)),\
++								        get_debug_facility(LOG_MNAME, LOG_MNAME_LEN)), \
+ 									   "%s" fmt, (prefix), __VA_ARGS__); \
+ 							else \
+ 								syslog(LOG2SYSLOG_LEVEL(L_DBG) | \
+ 									   (((facility) != DEFAULT_FACILITY) ? \
+ 										(facility) : \
+-										cfg_get(core, core_cfg, log_facility)),\
++								        get_debug_facility(LOG_MNAME, LOG_MNAME_LEN)), \
+ 									   "%s" fmt, (prefix), __VA_ARGS__); \
+ 						} \
+ 					} \
+@@ -270,7 +275,7 @@
+ 							syslog(LOG2SYSLOG_LEVEL(level) |\
+ 								   (((facility) != DEFAULT_FACILITY) ? \
+ 									(facility) : \
+-									cfg_get(core, core_cfg, log_facility)), \
++									get_debug_facility(LOG_MNAME, LOG_MNAME_LEN)), \
+ 									"%s: %s" fmt, LOG_LEVEL2NAME(level),\
+ 									(prefix) , ## args); \
+ 						} \
+@@ -286,13 +291,13 @@
+ 								syslog(LOG2SYSLOG_LEVEL(L_ALERT) | \
+ 									   (((facility) != DEFAULT_FACILITY) ? \
+ 										(facility) : \
+-										cfg_get(core, core_cfg, log_facility)),\
++										get_debug_facility(LOG_MNAME, LOG_MNAME_LEN)), \
+ 										"%s" fmt, (prefix) , ## args); \
+ 							else \
+ 								syslog(LOG2SYSLOG_LEVEL(L_DBG) | \
+ 									   (((facility) != DEFAULT_FACILITY) ? \
+ 										(facility) : \
+-										cfg_get(core, core_cfg, log_facility)),\
++										get_debug_facility(LOG_MNAME, LOG_MNAME_LEN)), \
+ 										"%s" fmt, (prefix) , ## args); \
+ 						} \
+ 					} \
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_api.c ui-siprouter/modules/debugger/debugger_api.c
+--- ui-siprouter~/modules/debugger/debugger_api.c	2015-06-10 17:20:42.000000000 +0300
++++ ui-siprouter/modules/debugger/debugger_api.c	2015-06-10 17:21:34.954893161 +0300
+@@ -952,7 +952,7 @@
+ 
+ 	if(dbg_set_mod_debug_level(value.s, value.len, &l)<0)
+ 	{
+-		rpc->fault(ctx, 500, "cannot store parameter\n");
++		rpc->fault(ctx, 500, "cannot store parameter");
+ 		return;
+ 	}
+ 	rpc->add(ctx, "s", "200 ok");
+@@ -961,6 +961,38 @@
+ /**
+  *
+  */
++static const char* dbg_rpc_mod_facility_doc[2] = {
++	"Specify module log facility",
++	0
++};
++
++static void dbg_rpc_mod_facility(rpc_t* rpc, void* ctx) {
++	int fl;
++	str value = {0, 0};
++	str facility = {0, 0};
++
++	if (rpc->scan(ctx, "SS", &value, &facility) < 1)
++	{
++	    rpc->fault(ctx, 500, "invalid parameters");
++	    return;
++	}
++
++	if ((fl = str2facility(facility.s)) == -1) {
++	    rpc->fault(ctx, 500, "facility not found");
++	    return;
++	}
++
++	if(dbg_set_mod_debug_facility(value.s, value.len, &fl) < 0)
++	{
++	    rpc->fault(ctx, 500, "cannot store parameter");
++	    return;
++	}
++	rpc->add(ctx, "s", "200 ok");
++}
++
++/**
++ *
++ */
+ static const char* dbg_rpc_reset_msgid_doc[2] = {
+ 	"Reset msgid on all process",
+ 	0
+@@ -999,6 +1031,7 @@
+ 	{"dbg.ls",        dbg_rpc_list,      dbg_rpc_list_doc,      0},
+ 	{"dbg.trace",     dbg_rpc_trace,     dbg_rpc_trace_doc,     0},
+ 	{"dbg.mod_level", dbg_rpc_mod_level, dbg_rpc_mod_level_doc, 0},
++	{"dbg.mod_facility", dbg_rpc_mod_facility, dbg_rpc_mod_facility_doc, 0},
+ 	{"dbg.reset_msgid", dbg_rpc_reset_msgid, dbg_rpc_reset_msgid_doc, 0},
+ 	{0, 0, 0, 0}
+ };
+@@ -1023,10 +1056,19 @@
+ 	struct _dbg_mod_level *next;
+ } dbg_mod_level_t;
+ 
++typedef struct _dbg_mod_facility {
++	str name;
++	unsigned int hashid;
++	int facility;
++	struct _dbg_mod_facility *next;
++} dbg_mod_facility_t;
++
+ typedef struct _dbg_mod_slot
+ {
+ 	dbg_mod_level_t *first;
+ 	gen_lock_t lock;
++	dbg_mod_facility_t *first_ft;
++	gen_lock_t lock_ft;
+ } dbg_mod_slot_t;
+ 
+ static dbg_mod_slot_t *_dbg_mod_table = NULL;
+@@ -1053,13 +1095,15 @@
+ 
+ 	for(i=0; i<_dbg_mod_table_size; i++)
+ 	{
+-		if(lock_init(&_dbg_mod_table[i].lock)==0)
++		if(lock_init(&_dbg_mod_table[i].lock)==0 ||
++		   lock_init(&_dbg_mod_table[i].lock_ft)==0)
+ 		{
+-			LM_ERR("cannot initalize lock[%d]\n", i);
++			LM_ERR("cannot initialize lock[%d]\n", i);
+ 			i--;
+ 			while(i>=0)
+ 			{
+ 				lock_destroy(&_dbg_mod_table[i].lock);
++				lock_destroy(&_dbg_mod_table[i].lock_ft);
+ 				i--;
+ 			}
+ 			shm_free(_dbg_mod_table);
+@@ -1176,6 +1220,82 @@
+ 
+ }
+ 
++int dbg_set_mod_debug_facility(char *mname, int mnlen, int *mfacility)
++{
++	unsigned int idx;
++	unsigned int hid;
++	dbg_mod_facility_t *it;
++	dbg_mod_facility_t *itp;
++	dbg_mod_facility_t *itn;
++
++	if(_dbg_mod_table==NULL)
++		return -1;
++
++	hid = dbg_compute_hash(mname, mnlen);
++	idx = hid&(_dbg_mod_table_size-1);
++
++	lock_get(&_dbg_mod_table[idx].lock_ft);
++	it = _dbg_mod_table[idx].first_ft;
++	itp = NULL;
++	while(it!=NULL && it->hashid < hid) {
++		itp = it;
++		it = it->next;
++	}
++	while(it!=NULL && it->hashid==hid)
++	{
++		if(mnlen==it->name.len
++				&& strncmp(mname, it->name.s, mnlen)==0)
++		{
++			/* found */
++			if(mfacility==NULL) {
++				/* remove */
++				if(itp!=NULL) {
++					itp->next = it->next;
++				} else {
++					_dbg_mod_table[idx].first_ft = it->next;
++				}
++				shm_free(it);
++			} else {
++				/* set */
++				it->facility = *mfacility;
++			}
++			lock_release(&_dbg_mod_table[idx].lock_ft);
++			return 0;
++		}
++		itp = it;
++		it = it->next;
++	}
++	/* not found - add */
++	if(mfacility==NULL) {
++		lock_release(&_dbg_mod_table[idx].lock_ft);
++		return 0;
++	}
++	itn = (dbg_mod_facility_t*)shm_malloc(sizeof(dbg_mod_facility_t) + (mnlen+1)*sizeof(char));
++	if(itn==NULL) {
++		LM_ERR("no more shm\n");
++		lock_release(&_dbg_mod_table[idx].lock_ft);
++		return -1;
++	}
++	memset(itn, 0, sizeof(dbg_mod_facility_t) + (mnlen+1)*sizeof(char));
++	itn->facility = *mfacility;
++	itn->hashid   = hid;
++	itn->name.s   = (char*)(itn) + sizeof(dbg_mod_facility_t);
++	itn->name.len = mnlen;
++	strncpy(itn->name.s, mname, mnlen);
++	itn->name.s[itn->name.len] = '\0';
++
++	if(itp==NULL) {
++		itn->next = _dbg_mod_table[idx].first_ft;
++		_dbg_mod_table[idx].first_ft = itn;
++	} else {
++		itn->next = itp->next;
++		itp->next = itn;
++	}
++	lock_release(&_dbg_mod_table[idx].lock_ft);
++	return 0;
++
++}
++
+ static int _dbg_get_mod_debug_level = 0;
+ int dbg_get_mod_debug_level(char *mname, int mnlen, int *mlevel)
+ {
+@@ -1219,6 +1339,49 @@
+ 	return -1;
+ }
+ 
++static int _dbg_get_mod_debug_facility = 0;
++int dbg_get_mod_debug_facility(char *mname, int mnlen, int *mfacility)
++{
++	unsigned int idx;
++	unsigned int hid;
++	dbg_mod_facility_t *it;
++	/* no LOG*() usage in this function and those executed insite it
++	 * - use fprintf(stderr, ...) if need for troubleshooting
++	 * - it will loop otherwise */
++	if(_dbg_mod_table==NULL)
++		return -1;
++
++	if(cfg_get(dbg, dbg_cfg, mod_facility_mode)==0)
++		return -1;
++
++	if(_dbg_get_mod_debug_facility!=0)
++		return -1;
++	_dbg_get_mod_debug_facility = 1;
++
++	hid = dbg_compute_hash(mname, mnlen);
++	idx = hid&(_dbg_mod_table_size-1);
++	lock_get(&_dbg_mod_table[idx].lock_ft);
++	it = _dbg_mod_table[idx].first_ft;
++	while(it!=NULL && it->hashid < hid)
++		it = it->next;
++	while(it!=NULL && it->hashid == hid)
++	{
++		if(mnlen==it->name.len
++				&& strncmp(mname, it->name.s, mnlen)==0)
++		{
++			/* found */
++			*mfacility = it->facility;
++		    lock_release(&_dbg_mod_table[idx].lock_ft);
++			_dbg_get_mod_debug_facility = 0;
++			return 0;
++		}
++		it = it->next;
++	}
++	lock_release(&_dbg_mod_table[idx].lock_ft);
++	_dbg_get_mod_debug_facility = 0;
++	return -1;
++}
++
+ /**
+  *
+  */
+@@ -1229,6 +1392,13 @@
+ 	set_module_debug_level_cb(dbg_get_mod_debug_level);
+ }
+ 
++void dbg_enable_mod_facilities(void)
++{
++	if(_dbg_mod_table==NULL)
++		return;
++	set_module_debug_facility_cb(dbg_get_mod_debug_facility);
++}
++
+ #define DBG_PVCACHE_SIZE 32
+ 
+ typedef struct _dbg_pvcache {
+@@ -1390,7 +1560,7 @@
+ 	set_log_assign_action_cb(dbg_log_assign);
+ }
+ 
+-int dbg_level_mode_fixup(void *temp_handle,
++int dbg_mode_fixup(void *temp_handle,
+ 	str *group_name, str *var_name, void **value){
+ 	if(_dbg_mod_table==NULL)
+ 	{
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_api.h ui-siprouter/modules/debugger/debugger_api.h
+--- ui-siprouter~/modules/debugger/debugger_api.h	2015-06-10 17:20:42.000000000 +0300
++++ ui-siprouter/modules/debugger/debugger_api.h	2015-06-10 17:21:36.862893120 +0300
+@@ -35,7 +35,9 @@
+ 
+ int dbg_init_mod_levels(int _dbg_mod_hash_size);
+ int dbg_set_mod_debug_level(char *mname, int mnlen, int *mlevel);
++int dbg_set_mod_debug_facility(char *mname, int mnlen, int *mfacility);
+ void dbg_enable_mod_levels(void);
++void dbg_enable_mod_facilities(void);
+ 
+ int dbg_init_pvcache(void);
+ void dbg_enable_log_assign(void);
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_config.c ui-siprouter/modules/debugger/debugger_config.c
+--- ui-siprouter~/modules/debugger/debugger_config.c	2015-06-10 17:20:42.000000000 +0300
++++ ui-siprouter/modules/debugger/debugger_config.c	2015-06-10 17:21:41.862893013 +0300
+@@ -32,6 +32,7 @@
+ 
+ struct cfg_group_dbg	default_dbg_cfg = {
+ 	0, /* level_mode */
++	0, /* facility_mode */
+ 	0  /* hash_size */
+ };
+ 
+@@ -39,8 +40,11 @@
+ 
+ cfg_def_t dbg_cfg_def[] = {
+ 	{"mod_level_mode", CFG_VAR_INT|CFG_ATOMIC, 0, 1,
+-		dbg_level_mode_fixup, 0,
++		dbg_mode_fixup, 0,
+ 		"Enable or disable per module log level (0 - disabled, 1 - enabled)"},
++	{"mod_facility_mode", CFG_VAR_INT|CFG_ATOMIC, 0, 1,
++		dbg_mode_fixup, 0,
++		"Enable or disable per module log facility (0 - disabled, 1 - enabled)"},
+ 	{"mod_hash_size", CFG_VAR_INT|CFG_READONLY, 0, 0,
+ 		0, 0,
+ 		"power of two as size of internal hash table to store levels per module"},
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_config.h ui-siprouter/modules/debugger/debugger_config.h
+--- ui-siprouter~/modules/debugger/debugger_config.h	2015-06-10 17:20:42.000000000 +0300
++++ ui-siprouter/modules/debugger/debugger_config.h	2015-06-10 17:21:43.670892974 +0300
+@@ -34,6 +34,7 @@
+ 
+ struct cfg_group_dbg {
+ 	unsigned int mod_level_mode;
++	unsigned int mod_facility_mode;
+ 	unsigned int mod_hash_size;
+ };
+ 
+@@ -41,6 +42,6 @@
+ extern void	*dbg_cfg;
+ extern cfg_def_t dbg_cfg_def[];
+ 
+-extern int dbg_level_mode_fixup(void *temp_handle,
++extern int dbg_mode_fixup(void *temp_handle,
+ 	str *group_name, str *var_name, void **value);
+ #endif
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_mod.c ui-siprouter/modules/debugger/debugger_mod.c
+--- ui-siprouter~/modules/debugger/debugger_mod.c	2015-06-10 17:20:45.000000000 +0300
++++ ui-siprouter/modules/debugger/debugger_mod.c	2015-06-10 17:21:48.182892877 +0300
+@@ -41,13 +41,14 @@
+ 
+ MODULE_VERSION
+ 
+-static int  mod_init(void);
++static int mod_init(void);
+ static int child_init(int rank);
+ static void mod_destroy(void);
+ 
+ static int w_dbg_breakpoint(struct sip_msg* msg, char* point, char* str2);
+ static int fixup_dbg_breakpoint(void** param, int param_no);
+ static int dbg_mod_level_param(modparam_t type, void *val);
++static int dbg_mod_facility_param(modparam_t type, void *val);
+ 
+ static int fixup_dbg_pv_dump(void** param, int param_no);
+ static int w_dbg_dump(struct sip_msg* msg, char* mask, char* level);
+@@ -103,6 +104,8 @@
+ 	{"mod_hash_size",     INT_PARAM, &default_dbg_cfg.mod_hash_size},
+ 	{"mod_level_mode",    INT_PARAM, &default_dbg_cfg.mod_level_mode},
+ 	{"mod_level",         STR_PARAM|USE_FUNC_PARAM, (void*)dbg_mod_level_param},
++	{"mod_facility_mode", INT_PARAM, &default_dbg_cfg.mod_facility_mode},
++	{"mod_facility",      STR_PARAM|USE_FUNC_PARAM, (void*)dbg_mod_facility_param},
+ 	{"reset_msgid",       INT_PARAM, &_dbg_reset_msgid},
+ 	{"cfgpkgcheck",       INT_PARAM, &_dbg_cfgpkgcheck},
+ 	{0, 0, 0}
+@@ -153,8 +156,9 @@
+ 		LM_ERR("Fail to declare the configuration\n");
+ 		return -1;
+ 	}
+-	LM_DBG("cfg level_mode:%d hash_size:%d\n",
++	LM_DBG("cfg level_mode:%d facility_mode:%d hash_size:%d\n",
+ 		cfg_get(dbg, dbg_cfg, mod_level_mode),
++		cfg_get(dbg, dbg_cfg, mod_facility_mode),
+ 		cfg_get(dbg, dbg_cfg, mod_hash_size));
+ 
+ 	if(dbg_init_mod_levels(cfg_get(dbg, dbg_cfg, mod_hash_size))<0)
+@@ -191,6 +195,7 @@
+ 	LM_DBG("rank is (%d)\n", rank);
+ 	if (rank==PROC_INIT) {
+ 		dbg_enable_mod_levels();
++		dbg_enable_mod_facilities();
+ 		dbg_enable_log_assign();
+ 		return dbg_init_pid_list();
+ 	}
+@@ -340,6 +345,44 @@
+ 
+ }
+ 
++static int dbg_mod_facility_param(modparam_t type, void *val)
++{
++	char *p;
++	str s;
++	int fl;
++	if(val==NULL)
++		return -1;
++
++	p = strchr((char*)val, '=');
++	if(p==NULL) {
++		LM_ERR("invalid parameter value: %s\n", (char*)val);
++		return -1;
++	}
++	s.s = p + 1;
++	s.len = strlen(s.s);
++
++	if ((fl = str2facility(s.s)) == -1) {
++		LM_ERR("invalid parameter - facility value: %s\n", (char*)val);
++		return -1;
++	}
++
++	s.s = (char*)val;
++	s.len = p - s.s;
++	LM_DBG("cfg facility_mode:%d hash_size:%d\n",
++		cfg_get(dbg, dbg_cfg, mod_facility_mode),
++		cfg_get(dbg, dbg_cfg, mod_hash_size));
++	if(dbg_init_mod_levels(cfg_get(dbg, dbg_cfg, mod_hash_size))<0)
++	{
++		LM_ERR("failed to init per module log level\n");
++		return -1;
++	}
++	if(dbg_set_mod_debug_facility(s.s, s.len, &fl)<0)
++	{
++		LM_ERR("cannot store parameter: %s\n", (char*)val);
++		return -1;
++	}
++	return 0;
++}
+ 
+ static int fixup_dbg_sip_msg(void** param, int param_no)
+ {

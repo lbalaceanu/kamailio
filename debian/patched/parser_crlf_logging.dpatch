@@ -1,0 +1,7 @@
+patching file parser/msg_parser.c
+Hunk #1 succeeded at 701 (offset -1 lines).
+patching file parser/msg_parser.h
+Hunk #1 succeeded at 542 with fuzz 2 (offset 50 lines).
+patching file parser/parse_via.c
+Hunk #1 succeeded at 2734 (offset 111 lines).
+Hunk #2 succeeded at 2744 (offset 111 lines).

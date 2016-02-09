@@ -1,0 +1,19 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## increase_max_branches.dpatch by  <Pawel Kuzak <pawel.kuzak@schlund.de>>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/config.h ui-siprouter/config.h
+--- ui-siprouter~/config.h	2014-03-21 13:34:13.000000000 +0100
++++ ui-siprouter/config.h	2014-03-21 13:34:41.257621787 +0100
+@@ -166,7 +166,7 @@
+ #define MAX_RECEIVED_SIZE	57	/*!< forwarding  -- Via buffer dimensioning - Received header */
+ #define MAX_RPORT_SIZE		13	/*!< forwarding  -- Via buffer dimensioning - Rport */
+ 
+-#define MAX_BRANCHES    	12	/*!< maximum number of branches per transaction */
++#define MAX_BRANCHES    	20	/*!< maximum number of branches per transaction */
+ 
+ #define MAX_PRINT_TEXT 		256	/*!< max length of the text of fifo 'print' command */
+ 

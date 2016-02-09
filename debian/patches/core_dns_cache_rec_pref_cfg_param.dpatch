@@ -1,0 +1,47 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## core_dns_cache_rec_pref_cfg_param.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/cfg.lex ui-siprouter/cfg.lex
+--- ui-siprouter~/cfg.lex	2015-04-10 09:05:37.000000000 +0300
++++ ui-siprouter/cfg.lex	2015-04-10 09:10:57.645821037 +0300
+@@ -365,6 +365,7 @@
+ DNS_CACHE_MEM		dns_cache_mem
+ DNS_CACHE_GC_INT	dns_cache_gc_interval
+ DNS_CACHE_DEL_NONEXP	dns_cache_del_nonexp|dns_cache_delete_nonexpired
++DNS_CACHE_REC_PREF      dns_cache_rec_pref
+ /* ipv6 auto bind */
+ AUTO_BIND_IPV6		auto_bind_ipv6
+ /* blacklist */
+@@ -719,6 +720,8 @@
+ 								return DNS_CACHE_GC_INT; }
+ <INITIAL>{DNS_CACHE_DEL_NONEXP}	{ count(); yylval.strval=yytext;
+ 								return DNS_CACHE_DEL_NONEXP; }
++<INITIAL>{DNS_CACHE_REC_PREF}   { count(); yylval.strval=yytext;
++								return DNS_CACHE_REC_PREF; }
+ <INITIAL>{AUTO_BIND_IPV6}	{ count(); yylval.strval=yytext;
+ 								return AUTO_BIND_IPV6; }
+ <INITIAL>{DST_BLST_INIT}	{ count(); yylval.strval=yytext;
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/cfg.y ui-siprouter/cfg.y
+--- ui-siprouter~/cfg.y	2015-04-10 09:05:37.000000000 +0300
++++ ui-siprouter/cfg.y	2015-04-10 09:11:57.649819962 +0300
+@@ -417,6 +417,7 @@
+ %token DNS_CACHE_MEM
+ %token DNS_CACHE_GC_INT
+ %token DNS_CACHE_DEL_NONEXP
++%token DNS_CACHE_REC_PREF
+ 
+ /* ipv6 auto bind */
+ %token AUTO_BIND_IPV6
+@@ -873,6 +874,8 @@
+ 	| DNS_CACHE_GC_INT error { yyerror("boolean value expected"); }
+ 	| DNS_CACHE_DEL_NONEXP EQUAL NUMBER   { IF_DNS_CACHE(default_core_cfg.dns_cache_del_nonexp=$3); }
+ 	| DNS_CACHE_DEL_NONEXP error { yyerror("boolean value expected"); }
++	| DNS_CACHE_REC_PREF EQUAL NUMBER   { IF_DNS_CACHE(default_core_cfg.dns_cache_rec_pref=$3); }
++	| DNS_CACHE_REC_PREF error { yyerror("boolean value expected"); }
+ 	| AUTO_BIND_IPV6 EQUAL NUMBER {IF_AUTO_BIND_IPV6(auto_bind_ipv6 = $3);}
+ 	| AUTO_BIND_IPV6 error { yyerror("boolean value expected"); }
+ 	| DST_BLST_INIT EQUAL NUMBER   { IF_DST_BLACKLIST(dst_blacklist_init=$3); }

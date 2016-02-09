@@ -1,0 +1,464 @@
+#!/usr/bin/make -f
+# Sample debian/rules that uses debhelper.
+# GNU copyright 1997 to 1999 by Joey Hess.
+
+
+
+DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
+ALL_MODULE_PACKAGES = ui-kamailio-mysql-module ui-kamailio-postgres-module \
+	ui-kamailio-cpl-module ui-kamailio-radius-modules \
+	ui-kamailio-unixodbc-module ui-kamailio-presence-modules \
+	ui-kamailio-perl-modules ui-kamailio-snmpstats-module ui-kamailio-xmpp-module \
+	ui-kamailio-carrierroute-module ui-kamailio-berkeley-module ui-kamailio-ldap-modules \
+	ui-kamailio-sp-mwid-module ui-kamailio-sp-tkuv-module ui-kamailio-ui-li-module \
+	ui-kamailio-sp-profile-module ui-kamailio-sp-ntool-module ui-kamailio-sp-ul-db-module \
+	ui-kamailio-routematrix-module ui-kamailio-sp-pdb-module ui-kamailio-utils-module \
+	ui-kamailio-regex-modules ui-kamailio-siptrace-modules ui-kamailio-sipcapture-module \
+
+ALL_PACKAGES = ui-kamailio $(ALL_MODULE_PACKAGES)
+
+DEBVERSION:=$(shell head -n 1 debian/changelog \
+                    | sed -e 's/^[^(]*(\([^)]*\)).*/\1/')
+UPVERSION:=$(shell echo $(DEBVERSION) | sed -e 's/^.*://' -e 's/-[0-9.]*$$//' -e 's/.dfsg$$//')
+
+FILENAME := kamailio_$(UPVERSION).orig.tar.gz
+UPFILENAME := kamailio-$(UPVERSION)-tls_src.tar.gz
+URL := http://kamailio.org/pub/kamailio/$(UPVERSION)/src/kamailio-$(UPVERSION)-tls_src.tar.gz
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# Include dpatch rules
+include /usr/share/dpatch/dpatch.make
+
+
+# Do we want the TLS version ?
+# Disabled by default due to license issues, set to non-void to enable
+TLS=
+
+# modules depending on mysql
+MYSQL_MODULES = db_mysql
+# modules depending on postgres
+POSTGRES_MODULES = db_postgres
+# modules depending on unixODBC
+UNIXODBC_MODULES= db_unixodbc
+# cpl related modules
+CPL_MODULES = cpl-c
+# module depending on radiusclient
+RADIUS_MODULES = avp_radius auth_radius group_radius uri_radius peering
+# presence related modules
+PRESENCE_MODULES = presence presence_xml presence_mwi pua pua_bla pua_mi pua_usrloc pua_xmpp xcap_client
+# siptrace related modules
+SIPTRACE_MODULES = siptrace
+# Perl module
+PERL_MODULES = perl perlvdb
+# SNMPstats module
+SNMPSTATS_MODULES = snmpstats
+# XMPP module
+XMPP_MODULES = xmpp
+# Carrierroute module
+CROUTE_MODULES = carrierroute
+# Berkeley DB module
+BERKELEY_MODULES = db_berkeley
+# LDAP modules
+LDAP_MODULES = ldap h350
+# mwid module
+SP-MWID_MODULES = sp-mwid
+# tkuv module
+SP-TKUV_MODULES = sp-tkuv
+# li module
+UI-LI_MODULES = ui-li
+# sp-profile module
+SP-PROF_MODULES = sp-profile
+# sp-ntool module
+SP-NTOOL_MODULES = sp-ntool
+# sp-ul_db module
+SP-UL_DB_MODULES = sp-ul_db
+# routematrix module
+SP-ROUTEMATRIX_MODULES = matrix
+# sp-pdb module
+SP-PDB_MODULES = sp-pdb
+# utils module
+UTILS_MODULES = utils
+# modules depending on libpcre
+REGEX_MODULES = dialplan regex lcr
+# sipcapture module
+SIPCAPTURE_MODULES = sipcapture
+
+ALL_MODULES = $(MYSQL_MODULES) $(POSTGRES_MODULES) $(UNIXODBC_MODULES)  $(CPL_MODULES) $(RADIUS_MODULES) $(PRESENCE_MODULES) $(SIPTRACE_MODULES) $(PERL_MODULES) $(SNMPSTATS_MODULES) $(XMPP_MODULES) $(CROUTE_MODULES) $(BERKELEY_MODULES) $(LDAP_MODULES) $(SP-MWID_MODULES) $(SP-TKUV_MODULES) $(UI-LI_MODULES) $(SP-PROF_MODULES) $(SP-NTOOL_MODULES) $(SP-UL_DB_MODULES) $(SP-DIV_MODULES) $(SP-ROUTEMATRIX_MODULES) $(SP-PDB_MODULES) $(UTILS_MODULES) $(REGEX_MODULES) $(SIPCAPTURE_MODULES)
+
+# modules not in the "main" package or unstable modules
+EXCLUDED_MODULES = $(ALL_MODULES) pa osp
+
+# the same but with path prepended (needed for modules="...")
+MYSQL_MOD_PATH=$(addprefix modules/, $(MYSQL_MODULES))
+POSTGRES_MOD_PATH=$(addprefix modules/, $(POSTGRES_MODULES))
+UNIXODBC_MOD_PATH=$(addprefix modules/, $(UNIXODBC_MODULES))
+CPL_MOD_PATH=$(addprefix modules/, $(CPL_MODULES))
+RADIUS_MOD_PATH=$(addprefix modules/, $(RADIUS_MODULES))
+PRESENCE_MOD_PATH=$(addprefix modules/, $(PRESENCE_MODULES))
+SIPTRACE_MOD_PATH=$(addprefix modules/, $(SIPTRACE_MODULES))
+PERL_MOD_PATH=$(addprefix modules/, $(PERL_MODULES))
+SNMPSTATS_MOD_PATH=$(addprefix modules/, $(SNMPSTATS_MODULES))
+XMPP_MOD_PATH=$(addprefix modules/, $(XMPP_MODULES))
+CROUTE_MOD_PATH=$(addprefix modules/, $(CROUTE_MODULES))
+BERKELEY_MOD_PATH=$(addprefix modules/, $(BERKELEY_MODULES))
+LDAP_MOD_PATH=$(addprefix modules/, $(LDAP_MODULES))
+SP-MWID_MOD_PATH=$(addprefix modules/, $(SP-MWID_MODULES))
+SP-TKUV_MOD_PATH=$(addprefix modules/, $(SP-TKUV_MODULES))
+UI-LI_MOD_PATH=$(addprefix modules/, $(UI-LI_MODULES))
+SP-PROF_MOD_PATH=$(addprefix modules/, $(SP-PROF_MODULES))
+SP-NTOOL_MOD_PATH=$(addprefix modules/, $(SP-NTOOL_MODULES))
+SP-UL_DB_MOD_PATH=$(addprefix modules/, $(SP-UL_DB_MODULES))
+SP-DIV_MOD_PATH=$(addprefix modules/, $(SP-DIV_MODULES))
+SP-ROUTEMATRIX_MOD_PATH=$(addprefix modules/, $(SP-ROUTEMATRIX_MODULES))
+SP-PDB_MOD_PATH=$(addprefix modules/, $(SP-PDB_MODULES))
+UTILS_MOD_PATH=$(addprefix modules/, $(UTILS_MODULES))
+REGEX_MOD_PATH=$(addprefix modules/, $(REGEX_MODULES))
+SIPCAPTURE_MOD_PATH=$(addprefix modules/, $(SIPCAPTURE_MODULES))
+
+# directories with possible duplicate libraries (that should be deleted
+# from current module* packages)
+DUP_LIBS_DIRS=$(CURDIR)/debian/ui-kamailio/usr/lib/kamailio
+DUP_LIBS_DIRS64=$(CURDIR)/debian/ui-kamailio/usr/lib64/kamailio
+
+ifeq (cc, $(CC))
+	CC = gcc
+endif
+
+CFLAGS = -Wall -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	INSTALL_PROGRAM += -s
+endif
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	# Add here commands to configure the package.
+	touch configure-stamp
+
+
+build: build-stamp
+build-stamp: patch-stamp configure-stamp 
+	dh_testdir
+	# make cfg
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) FLAVOUR=kamailio cfg
+	# Add here commands to compile the package.
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) all skip_modules="$(EXCLUDED_MODULES)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(MYSQL_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(POSTGRES_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(UNIXODBC_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(CPL_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(RADIUS_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(PRESENCE_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SIPTRACE_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(PERL_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SNMPSTATS_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(XMPP_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(CROUTE_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(BERKELEY_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(LDAP_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SP-MWID_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SP-TKUV_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(UI-LI_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SP-PROF_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SP-NTOOL_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SP-UL_DB_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SP-DIV_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SP-ROUTEMATRIX_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SP-PDB_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(UTILS_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(REGEX_MOD_PATH)"
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) modules modules="$(SIPCAPTURE_MOD_PATH)"
+
+	# generate the utils db_berkeley
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) utils include_modules="db_berkeley"
+
+	# generate the man pages for modules
+	# $(MAKE) modules-docbook-man include_modules="$(ALL_MODULES)"
+
+	touch build-stamp
+
+clean: real-clean unpatch
+real-clean:
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp configure-stamp
+
+	# Add here commands to clean up after the build process.
+	$(MAKE) CORE_TLS=$(TLS) include_modules="$(ALL_MODULES)" proper
+	rm -f cfg.tab.h
+	rm -f utils/kamunix/kamunix.o utils/kamunix/kamunix
+	rm -f utils/db_berkeley/kambdb_recover.o utils/db_berkeley/kambdb_recover
+
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+
+	# Add here commands to install the package into debian/kamailio
+	# kamailio base package
+
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install skip_modules="$(EXCLUDED_MODULES)" \
+		basedir=$(CURDIR)/debian/ui-kamailio \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio \
+		doc-dir=share/doc/ui-kamailio
+
+	find $(CURDIR)/debian/ui-kamailio/etc/kamailio -type f -exec chmod -x {} \;
+	sed -i -e "s/^PATH.*//" $(CURDIR)/debian/ui-kamailio/usr/sbin/kamctl
+
+	# our config packages provides openser.cfg
+	mv $(CURDIR)/debian/ui-kamailio/etc/kamailio/kamailio.cfg $(CURDIR)/debian/ui-kamailio/etc/kamailio/kamailio.cfg.example
+
+
+	# install only the mysql module
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(MYSQL_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-mysql-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-mysql-module \
+		doc-dir=share/doc/ui-kamailio-mysql-module
+
+	# install only the postgres module
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(POSTGRES_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-postgres-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-postgres-module \
+		doc-dir=share/doc/ui-kamailio-postgres-module
+
+	# install only the unixodbc module
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(UNIXODBC_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-unixodbc-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-unixodbc-module \
+		doc-dir=share/doc/ui-kamailio-unixodbc-module
+
+	#install only the cpl module
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(CPL_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-cpl-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-cpl-module \
+		doc-dir=share/doc/ui-kamailio-cpl-module
+
+	#install only the radius modules
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(RADIUS_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-radius-modules \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-radius-modules \
+		doc-dir=share/doc/ui-kamailio-radius-modules
+
+	#install only the presence modules
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(PRESENCE_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-presence-modules \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-presence-modules \
+		doc-dir=share/doc/ui-kamailio-presence-modules
+
+	# install only the siptrace modules
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SIPTRACE_MOD_PATH)"  \
+                basedir=$(CURDIR)/debian/ui-kamailio-siptrace-modules \
+                prefix=/usr \
+                cfg_prefix=$(CURDIR)/debian/ui-kamailio-siptrace-modules \
+                doc-dir=share/doc/ui-kamailio-siptrace-modules
+
+	#install only the perl module
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(PERL_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-perl-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-perl-module \
+		doc-dir=share/doc/ui-kamailio-perl-module
+
+	#install only the snmpstats module
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SNMPSTATS_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-snmpstats-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-snmpstats-module \
+		doc-dir=share/doc/ui-kamailio-snmpstats-module
+
+	#install only the xmpp module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(XMPP_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-xmpp-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-xmpp-module \
+		doc-dir=share/doc/ui-kamailio-xmpp-module
+
+	# install only the carrierroute module
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(CROUTE_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-carrierroute-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-carrierroute-module \
+		doc-dir=share/doc/ui-kamailio-carrierroute-module
+
+	# install only the db_berkeley module
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(BERKELEY_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-berkeley-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-berkeley-module \
+		doc-dir=share/doc/ui-kamailio-berkeley-module
+
+	# install only the ldap modules
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(LDAP_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-ldap-modules \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-ldap-modules \
+		doc-dir=share/doc/ui-kamailio-ldap-modules
+
+	#install only the sp-mwid module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SP-MWID_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-sp-mwid-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-sp-mwid-module \
+		doc-dir=share/doc/ui-kamailio-sp-mwid-module
+
+	#install only the sp-tkuv module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SP-TKUV_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-sp-tkuv-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-sp-tkuv-module \
+		doc-dir=share/doc/ui-kamailio-sp-tkuv-module
+
+	#install only the ui-li module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(UI-LI_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-ui-li-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-ui-li-module \
+		doc-dir=share/doc/ui-kamailio-ui-li-module
+
+	#install only the sp-profile module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SP-PROF_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-sp-profile-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-sp-profile-module \
+		doc-dir=share/doc/ui-kamailio-sp-profile-module
+
+	#install only the sp-ntool module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SP-NTOOL_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-sp-ntool-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-sp-ntool-module \
+		doc-dir=share/doc/ui-kamailio-sp-ntool-module
+
+	#install only the sp-ul_db module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SP-UL_DB_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-sp-ul-db-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-sp-ul-db-module \
+		doc-dir=share/doc/ui-kamailio-sp-ul-db-module
+
+	#install only the sp-routematrix module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SP-ROUTEMATRIX_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-routematrix-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-routematrix-module \
+		doc-dir=share/doc/ui-kamailio-routematrix-module
+
+	#install only the sp-pdb module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SP-PDB_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-sp-pdb-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-sp-pdb-module \
+		doc-dir=share/doc/ui-kamailio-sp-pdb-module
+
+	#install only the utils module
+		CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(UTILS_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-utils-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-utils-module \
+		doc-dir=share/doc/ui-kamailio-utils-module
+
+	# install only the regex modules
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(REGEX_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-regex-modules \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-regex-modules \
+		doc-dir=share/doc/ui-kamailio-regex-modules
+
+	# install only the sipcapture modules
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CORE_TLS=$(TLS) $(MAKE) install-modules modules="$(SIPCAPTURE_MOD_PATH)"  \
+		basedir=$(CURDIR)/debian/ui-kamailio-sipcapture-module \
+		prefix=/usr \
+		cfg_prefix=$(CURDIR)/debian/ui-kamailio-sipcapture-module \
+		doc-dir=share/doc/ui-kamailio-sipcapture-module
+
+
+
+        # eliminate duplicate libs
+	-for p in $(ALL_MODULE_PACKAGES); do \
+		for d in $(DUP_LIBS_DIRS); do \
+			test "$$d" != "$(CURDIR)/debian/$$p/usr/lib/ser" &&\
+			for r in $$d/lib*; do \
+				echo "removing $(grp) lib `basename $$r` present also in $$d";\
+				rm -f $(CURDIR)/debian/$$p/usr/lib/kamailio/`basename "$$r"` ; \
+			done ; \
+		done ;\
+		for d in $(DUP_LIBS_DIRS64); do \
+			test "$$d" != "$(CURDIR)/debian/$$p/usr/lib/ser" &&\
+			for r in $$d/lib*; do \
+				echo "removing $(grp) lib `basename $$r` present also in $$d";\
+				rm -f $(CURDIR)/debian/$$p/usr/lib64/kamailio/`basename "$$r"` ; \
+			done ; \
+		done ;\
+	done
+
+	# the modules packages all ship an empty /usr/sbin directory, let's clean that up
+	for p in $(ALL_PACKAGES); \
+		do rmdir --ignore-fail-on-non-empty $(CURDIR)/debian/$$p/usr/sbin || true; done
+
+# This single target is used to build all the packages, all at once, or
+# one at a time. So keep in mind: any options passed to commands here will
+# affect _all_ packages. Anything you want to only affect one package
+# should be put in another target, such as the install target.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	dh_installexamples --exclude=".git"
+	dh_installinit -r -n -- defaults 23
+	#sipcapture module installs init scripts for Homer machines
+	dh_installinit -r -n --package=ui-kamailio-sipcapture-module --name=ui-kamailio
+	dh_installinit -r -n --package=ui-kamailio-sipcapture-module --name=ui-kamailio5061
+	dh_installcron
+	dh_installman
+	dh_installinfo
+	dh_installchangelogs
+	dh_link
+	dh_lintian
+	dh_strip --dbg-package=ui-kamailio --dbg-package=ui-kamailio-carrierroute-module
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps -- --warnings=0
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+# Build architecture-independent packages using the common target
+binary-indep: build install
+# We have nothing to do by default.
+
+binary: binary-indep binary-arch
+
+print-version:
+	@@echo "Debian version:          $(DEBVERSION)"
+	@@echo "Upstream version:        $(UPVERSION)"
+
+get-orig-source:
+	@@dh_testdir
+	@@[ -d ../tarballs/. ]||mkdir -p ../tarballs
+	@@echo Downloading $(FILENAME) from $(URL) ...
+	@@wget -N -nv -T10 -t3 -O ../tarballs/$(FILENAME) $(URL)
+
+.PHONY: build clean binary-indep binary-arch binary install configure patch unpatch real-clean

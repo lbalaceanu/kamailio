@@ -1,0 +1,8 @@
+patching file lib/kcore/strcommon.c
+patching file lib/kcore/strcommon.h
+patching file md5utils.h
+patching file modules/pv/pv_trans.c
+patching file modules/pv/pv_trans.h
+patching file sha256.c
+patching file sha256.h
+patching file sha2utils.h

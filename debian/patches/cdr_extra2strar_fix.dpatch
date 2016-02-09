@@ -1,0 +1,240 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## cdr_extra2strar_fix.dpatch by  <lbalaceanu@dxbu-czc1524bcy>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc.c ui-siprouter/modules/acc/acc.c
+--- ui-siprouter~/modules/acc/acc.c	2014-07-23 17:26:23.000000000 +0300
++++ ui-siprouter/modules/acc/acc.c	2014-07-23 17:27:23.669205200 +0300
+@@ -229,6 +229,7 @@
+ 	char *p;
+ 	int n;
+ 	int m;
++	int o = 0;
+ 	int i;
+ 	struct tm *t;
+ 
+@@ -236,7 +237,9 @@
+ 	m = core2strar( rq, val_arr, int_arr, type_arr);
+ 
+ 	/* get extra values */
+-	m += extra2strar( log_extra, rq, val_arr+m, int_arr+m, type_arr+m);
++	o += extra2strar( log_extra, rq, val_arr+m, int_arr+m, type_arr+m);
++
++	m += o;
+ 
+ 	for ( i=0,p=log_msg ; i<m ; i++ ) {
+ 		if (p+1+log_attrs[i].len+1+val_arr[i].len >= log_msg_end) {
+@@ -314,6 +317,8 @@
+ 			acc_env.text.len, acc_env.text.s,(unsigned long)acc_env.ts,
+ 			log_msg);
+ 	}
++	/* free memory allocated by extra2strar */
++	free_strar_mem( &(type_arr[m-o]), &(val_arr[m-o]), o, m);
+ 
+ 	return 1;
+ }
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_cdr.c ui-siprouter/modules/acc/acc_cdr.c
+--- ui-siprouter~/modules/acc/acc_cdr.c	2014-07-23 17:26:23.000000000 +0300
++++ ui-siprouter/modules/acc/acc_cdr.c	2014-07-23 17:27:23.669205200 +0300
+@@ -131,6 +131,7 @@
+                       struct sip_msg* message)
+ {
+ 	int m = 0;
++	int n = 0;
+ 	int i;
+ 	db_func_t *df=NULL;
+ 	db1_con_t *dh=NULL;
+@@ -161,11 +162,13 @@
+ 	}
+ 
+     /* get extra values */
+-	m += extra2strar( cdr_extra,
++	n += extra2strar( cdr_extra,
+ 						message,
+ 						cdr_value_array + m,
+ 						cdr_int_array + m,
+ 						cdr_type_array + m);
++	m += n;
++
+ 	for( ; i<m; i++) {
+ 		db_cdr_keys[i] = &cdr_attrs[i];
+ 		VAL_TYPE(db_cdr_vals+i)=DB1_STR;
+@@ -175,22 +178,28 @@
+ 
+ 	if (df->use_table(dh, &acc_cdrs_table /*table*/) < 0) {
+ 		LM_ERR("error in use_table\n");
+-		return -1;
++		goto error;
+ 	}
+ 
+ 	if(acc_db_insert_mode==1 && df->insert_delayed!=NULL) {
+ 		if (df->insert_delayed(dh, db_cdr_keys, db_cdr_vals, m) < 0) {
+ 			LM_ERR("failed to insert delayed into database\n");
+-			return -1;
++			goto error;
+ 		}
+ 	} else {
+ 		if (df->insert(dh, db_cdr_keys, db_cdr_vals, m) < 0) {
+ 			LM_ERR("failed to insert into database\n");
+-			return -1;
++			goto error;
+ 		}
+ 	}
+-
++	/* Free memory allocated by acc_extra.c/extra2strar */
++	free_strar_mem( &(cdr_type_array[m-n]), &(cdr_value_array[m-n]), n, m);
+ 	return 0;
++
++error:
++    /* Free memory allocated by acc_extra.c/extra2strar */
++	free_strar_mem( &(cdr_type_array[m-n]), &(cdr_value_array[m-n]), n, m);
++    return -1;
+ }
+ #endif
+ 
+@@ -204,6 +213,7 @@
+                                          2;// -2 because of the string ending '\n\0'
+     char* message_position = NULL;
+     int message_index = 0;
++    int extra_index = 0;
+     int counter = 0;
+ 
+ 	if(cdr_log_enable==0)
+@@ -216,11 +226,12 @@
+                                     cdr_type_array);
+ 
+     /* get extra values */
+-    message_index += extra2strar( cdr_extra,
++    extra_index += extra2strar( cdr_extra,
+                                   message,
+                                   cdr_value_array + message_index,
+                                   cdr_int_array + message_index,
+                                   cdr_type_array + message_index);
++    message_index += extra_index;
+ 
+     for( counter = 0, message_position = cdr_message;
+          counter < message_index ;
+@@ -267,6 +278,9 @@
+ 
+     LM_GEN2( cdr_facility, log_level, "%s", cdr_message);
+ 
++    /* free memory allocated by extra2strar, nothing is done in case no extra strings were found by extra2strar */
++    free_strar_mem( &(cdr_type_array[message_index-extra_index]), &(cdr_value_array[message_index-extra_index]),
++    				   extra_index, message_index);
+     return 0;
+ }
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_extra.c ui-siprouter/modules/acc/acc_extra.c
+--- ui-siprouter~/modules/acc/acc_extra.c	2014-07-23 17:26:23.000000000 +0300
++++ ui-siprouter/modules/acc/acc_extra.c	2014-07-23 17:27:23.669205200 +0300
+@@ -63,16 +63,6 @@
+ /* here we copy the strings returned by int2str (which uses a static buffer) */
+ static char int_buf[INT2STR_MAX_LEN*MAX_ACC_INT_BUF];
+ 
+-static char *static_detector = 0;
+-
+-void init_acc_extra(void)
+-{
+-	int i;
+-	/* ugly trick to get the address of the static buffer */
+-	static_detector = int2str( (unsigned long)3, &i) + i;
+-}
+-
+-
+ struct acc_extra *parse_acc_leg(char *extra_str)
+ {
+ 	struct acc_extra *legs;
+@@ -251,10 +241,10 @@
+ {
+ 	pv_value_t value;
+ 	int n;
+-	int r;
++	int i;
+ 
+ 	n = 0;
+-	r = 0;
++	i = 0;
+ 	
+ 	while (extra) {
+ 		/* get the value */
+@@ -274,15 +264,21 @@
+ 			val_arr[n].len = 0;
+ 			type_arr[n] = TYPE_NULL;
+ 		} else {
+-			/* set the value into the acc buffer */
+-			if (value.rs.s+value.rs.len==static_detector) {
+-				val_arr[n].s = int_buf + r*INT2STR_MAX_LEN;
+-				val_arr[n].len = value.rs.len;
+-				memcpy(val_arr[n].s, value.rs.s, value.rs.len);
+-				r++;
+-			} else {
+-				val_arr[n] = value.rs;
+-			}
++		    val_arr[n].s = (char *)pkg_malloc(value.rs.len);
++		    if (val_arr[n].s == NULL ) {
++		        LM_ERR("extra2strar: out of memory.\n");
++		        /* Cleanup already allocated memory and 
++                   return that we didn't do anything */
++                for (i = 0; i < n ; i++) {
++                	if ((TYPE_NULL != type_arr[i]) && ( NULL != val_arr[i].s)) {
++                		pkg_free(val_arr[i].s); val_arr[i].s = NULL;
++                	}
++                }
++                n = 0;
++                goto done;
++            }
++            memcpy(val_arr[n].s, value.rs.s, value.rs.len);
++            val_arr[n].len = value.rs.len;
+ 			if (value.flags&PV_VAL_INT) {
+ 			    int_arr[n] = value.ri;
+ 			    type_arr[n] = TYPE_INT;
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_extra.h ui-siprouter/modules/acc/acc_extra.h
+--- ui-siprouter~/modules/acc/acc_extra.h	2014-07-23 17:26:23.000000000 +0300
++++ ui-siprouter/modules/acc/acc_extra.h	2014-07-23 17:27:23.669205200 +0300
+@@ -43,12 +43,11 @@
+ #ifndef _ACC_EXTRA_H_
+ #define _ACC_EXTRA_H_
+ 
++#include "acc_api.h"
+ #include "../../str.h"
+ #include "../../pvar.h"
+ #include "../../parser/msg_parser.h"
+ 
+-void init_acc_extra(void);
+-
+ struct acc_extra *parse_acc_extra(char *extra);
+ 
+ struct acc_extra *parse_acc_leg(char *extra);
+@@ -68,5 +67,16 @@
+ int extra2attrs( struct acc_extra *extra, struct attr *attrs, int offset);
+ #endif
+ 
++static inline void free_strar_mem( char* type_arr, str* alloc_arr, int dim_arr, int dim_ext){
++	int i = 0;
++	for ( i = 0; i < dim_arr; i ++ ) {
++		if ((type_arr[i] != TYPE_NULL ) && ( NULL != alloc_arr[i].s)) {
++			LM_DBG("Freeing memory, type is %d, message_index %d, index i %d\n",
++					type_arr[i], dim_ext - dim_arr, i);
++			pkg_free( alloc_arr[i].s) ;  alloc_arr[i].s = NULL;
++		}
++	}
++}
++
+ #endif
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/acc/acc_mod.c ui-siprouter/modules/acc/acc_mod.c
+--- ui-siprouter~/modules/acc/acc_mod.c	2014-07-23 17:26:23.000000000 +0300
++++ ui-siprouter/modules/acc/acc_mod.c	2014-07-23 17:27:23.669205200 +0300
+@@ -528,9 +528,6 @@
+ 		return -1;
+ 	}
+ 
+-	/* init the extra engine */
+-	init_acc_extra();
+-
+ 	/* configure multi-leg accounting */
+ 	if (leg_info_str && (leg_info=parse_acc_leg(leg_info_str))==0 ) {
+ 		LM_ERR("failed to parse multileg_info param\n");

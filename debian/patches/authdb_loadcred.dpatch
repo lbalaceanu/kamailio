@@ -1,0 +1,27 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## authdb_loadcred.dpatch by  <avamanu@avamanu>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/auth_db/authorize.c ui-siprouter/modules/auth_db/authorize.c
+--- ui-siprouter~/modules/auth_db/authorize.c	2013-03-22 12:02:47.000000000 +0200
++++ ui-siprouter/modules/auth_db/authorize.c	2013-03-22 12:03:59.750292766 +0200
+@@ -217,6 +217,7 @@
+ 		ret = AUTH_USER_UNKNOWN;
+ 		goto end;
+ 	}
++	generate_avps(msg, result);
+ 
+ 	/* Recalculate response, it must be same to authorize successfully */
+ 	ret = auth_api.check_response(&(cred->digest),
+@@ -225,7 +226,7 @@
+ 		ret = AUTH_OK;
+ 		switch(auth_api.post_auth(msg, h)) {
+ 			case AUTHENTICATED:
+-				generate_avps(msg, result);
++//				generate_avps(msg, result);
+ 				break;
+ 			default:
+ 				ret = AUTH_ERROR;

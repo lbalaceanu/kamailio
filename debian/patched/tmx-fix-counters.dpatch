@@ -1,0 +1,5 @@
+patching file modules/tm/t_reply.c
+Hunk #6 succeeded at 2196 (offset 1 line).
+patching file modules/tm/t_stats.c
+patching file modules/tm/t_stats.h
+patching file modules/tmx/tmx_mod.c

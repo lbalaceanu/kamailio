@@ -1,0 +1,5 @@
+patching file modules/debugger/debugger_api.c
+Hunk #1 succeeded at 1143 (offset 51 lines).
+Hunk #2 succeeded at 1360 (offset 51 lines).
+Hunk #3 succeeded at 1407 (offset 51 lines).
+patching file modules/debugger/debugger_mod.c

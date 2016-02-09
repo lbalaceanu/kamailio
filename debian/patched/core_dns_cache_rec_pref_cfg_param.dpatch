@@ -1,0 +1,6 @@
+patching file cfg.lex
+Hunk #1 succeeded at 372 (offset 7 lines).
+Hunk #2 succeeded at 748 (offset 28 lines).
+patching file cfg.y
+Hunk #1 succeeded at 420 (offset 3 lines).
+Hunk #2 succeeded at 889 (offset 15 lines).

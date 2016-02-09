@@ -1,0 +1,9 @@
+patching file modules/acc/acc_cdr.c
+patching file modules/acc/acc_cdr.c~
+patching file modules/dialog/dlg_cb.h
+patching file modules/dialog/dlg_cb.h~
+patching file modules/dialog/dlg_handlers.c
+Hunk #1 succeeded at 1383 (offset -12 lines).
+Hunk #2 succeeded at 1427 (offset -7 lines).
+Hunk #3 succeeded at 1441 (offset -7 lines).
+patching file modules/dialog/dlg_handlers.c~

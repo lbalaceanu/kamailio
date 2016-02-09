@@ -1,0 +1,65 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## tm-extend-pend-cbs-on-reqin.dpatch by Timo Reimann <timo.reimann@1und1.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Allow extending pending tm callbacks on TMCB_REQUEST_IN callbacks.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/h_table.c ui-siprouter/modules/tm/h_table.c
+--- ui-siprouter~/modules/tm/h_table.c	2011-10-12 21:40:07.000000000 +0200
++++ ui-siprouter/modules/tm/h_table.c	2011-10-12 21:41:12.000000000 +0200
+@@ -366,6 +366,11 @@
+ 		set_early_tmcb_list(p_msg, new_cell);
+ 		if(has_reqin_tmcbs())
+ 			run_reqin_callbacks( new_cell, p_msg, p_msg->REQ_METHOD);
++
++        /* if new pending callbacks were issued by any TMCB_REQUEST_IN
++         * callback, move them to the transaction as well (possibly
++         * extending the existing list of callbacks) */
++		extend_early_cbs(p_msg->id, new_cell);
+ 	}
+ 
+ 	if (p_msg) {
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/t_hooks.c ui-siprouter/modules/tm/t_hooks.c
+--- ui-siprouter~/modules/tm/t_hooks.c	2011-10-12 21:40:07.000000000 +0200
++++ ui-siprouter/modules/tm/t_hooks.c	2011-10-12 21:43:40.000000000 +0200
+@@ -88,6 +88,27 @@
+ 	}
+ }
+ 
++static void extend_cb_list(struct tmcb_head_list *existing, struct tmcb_head_list *new)
++{
++    struct tm_callback *cbp;
++
++    if (existing->first == 0)
++        *existing = *new;
++    else {
++        for (cbp = (struct tm_callback*)new->first; cbp->next != NULL; cbp = cbp->next) ;
++        cbp->next = (struct tm_callback*)existing->first;
++        existing->first = new->first;
++        existing->reg_types |= new->reg_types;
++    }
++}
++
++void extend_early_cbs(int msgid, struct cell *new_cell) {
++        if (tmcb_early_hl.cb_list.first!=0 && msgid==tmcb_early_hl.msgid) {
++		    extend_cb_list(&new_cell->tmcb_hl, &tmcb_early_hl.cb_list);
++		    tmcb_early_hl.cb_list.first = 0;
++		}
++}
++
+ int init_tmcb_lists()
+ {
+ 	req_in_tmcb_hl = (struct tmcb_head_list*)shm_malloc
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/t_hooks.h ui-siprouter/modules/tm/t_hooks.h
+--- ui-siprouter~/modules/tm/t_hooks.h	2011-10-12 21:40:07.000000000 +0200
++++ ui-siprouter/modules/tm/t_hooks.h	2011-10-12 21:40:33.000000000 +0200
+@@ -423,6 +423,8 @@
+ void set_early_tmcb_list(struct sip_msg *msg,
+ 		struct cell *t);
+ 
++void extend_early_cbs(int msgid, struct cell *new_cell);
++
+ #define has_tran_tmcbs(_T_, _types_) \
+ 	( ((_T_)->tmcb_hl.reg_types)&(_types_) )
+ #define has_reqin_tmcbs() \

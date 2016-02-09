@@ -1,0 +1,19 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## increase-private-memory-size.dpatch by  <marius@marius.ro.schlund.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/config.h ui-siprouter/config.h
+--- ui-siprouter~/config.h	2011-02-11 11:47:47.000000000 +0200
++++ ui-siprouter/config.h	2011-02-11 11:49:28.000000000 +0200
+@@ -141,7 +141,7 @@
+ #define SRV_MAX_PREFIX_LEN SRV_TLS_PREFIX_LEN
+ 
+ #ifndef PKG_MEM_SIZE
+-#define PKG_MEM_SIZE 4
++#define PKG_MEM_SIZE 16
+ #endif
+ #define PKG_MEM_POOL_SIZE PKG_MEM_SIZE*1024*1024	/*!< used only if PKG_MALLOC is defined*/
+ 

@@ -1,0 +1,19 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## enable_memory_debug.dpatch by  <Pawel Kuzak <pawel.kuzak@schlund.de>>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/Makefile.defs ui-siprouter/Makefile.defs
+--- ui-siprouter~/Makefile.defs	2014-02-06 15:17:25.000000000 +0100
++++ ui-siprouter/Makefile.defs	2014-02-06 15:21:00.696689831 +0100
+@@ -167,7 +167,7 @@
+ # memory debugger switcher
+ # 0 - off (release mode)
+ # 1 - on (devel mode)
+-MEMDBG ?= 0
++MEMDBG ?= 1
+ 
+ SER_VER = $(shell expr $(VERSION) \* 1000000 + $(PATCHLEVEL) \* 1000 + \
+ 			$(SUBLEVEL) )

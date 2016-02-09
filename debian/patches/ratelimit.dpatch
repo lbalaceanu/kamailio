@@ -1,0 +1,19 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## ratelimit.dpatch by  <carsten.gross@1und1.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/ratelimit/ratelimit.c ui-siprouter/modules/ratelimit/ratelimit.c
+--- ui-siprouter~/modules/ratelimit/ratelimit.c	2011-08-19 14:38:04.000000000 +0200
++++ ui-siprouter/modules/ratelimit/ratelimit.c	2011-08-19 14:38:54.000000000 +0200
+@@ -56,7 +56,7 @@
+ MODULE_VERSION
+ 
+ #define MAX_PIPES       16
+-#define MAX_QUEUES      10
++#define MAX_QUEUES      16
+ 
+ /*
+  * timer interval length in seconds, tunable via modparam

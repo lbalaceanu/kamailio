@@ -1,0 +1,220 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## tmx-fix-relayed-replies.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/t_reply.c ui-siprouter/modules/tm/t_reply.c
+--- ui-siprouter~/modules/tm/t_reply.c	2015-12-15 10:05:49.000000000 +0200
++++ ui-siprouter/modules/tm/t_reply.c	2015-12-15 10:08:05.426016259 +0200
+@@ -635,7 +635,8 @@
+ 	/* t_update_timers_after_sending_reply( rb ); */
+ 	update_reply_stats( code );
+ 	trans->relayed_reply_branch=-2;
+-	t_stats_replied_locally();
++	t_stats_rpl_generated();
++	t_stats_rpl_sent();
+ 	if (lock) UNLOCK_REPLIES( trans );
+ 
+ 	/* do UAC cleanup procedures in case we generated
+@@ -1929,6 +1930,7 @@
+ 			}
+ 		}
+ 		update_reply_stats( relayed_code );
++		t_stats_rpl_sent();
+ 		if (!buf) {
+ 			LOG(L_ERR, "ERROR: relay_reply: "
+ 				"no mem for outbound reply buffer\n");
+@@ -1951,9 +1953,9 @@
+ 		memcpy( uas_rb->buffer, buf, res_len );
+ 		if (relayed_msg==FAKED_REPLY) { /* to-tags for local replies */
+ 			update_local_tags(t, &bm, uas_rb->buffer, buf);
+-			t_stats_replied_locally();
++			t_stats_rpl_generated();
+ 		}
+-		
++
+ 		/* update the status ... */
+ 		t->uas.status = relayed_code;
+ 		t->relayed_reply_branch = relay;
+@@ -2092,7 +2094,7 @@
+ 		winning_msg= branch==local_winner
+ 			? p_msg :  t->uac[local_winner].reply;
+ 		if (winning_msg==FAKED_REPLY) {
+-			t_stats_replied_locally();
++			t_stats_rpl_generated();
+ 			winning_code = branch==local_winner
+ 				? msg_status : t->uac[local_winner].last_received;
+ 		} else {
+@@ -2100,6 +2102,7 @@
+ 		}
+ 		t->uas.status = winning_code;
+ 		update_reply_stats( winning_code );
++		t_stats_rpl_sent();
+ 		if (unlikely(is_invite(t) && winning_msg!=FAKED_REPLY &&
+ 					 winning_code>=200 && winning_code <300 &&
+ 					 has_tran_tmcbs(t, TMCB_LOCAL_COMPLETED) ))  {
+@@ -2192,6 +2195,9 @@
+ 	if ( (t==0)||(t==T_UNDEFINED))
+ 		goto trans_not_found;
+ 
++	/* if transaction found, increment the rpl_received counter */
++	t_stats_rpl_received();
++
+ 	if (unlikely(branch==T_BR_UNDEFINED))
+ 		BUG("invalid branch, please report to sr-dev@sip-router.org\n");
+ 	tm_ctx_set_branch_index(branch);
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/t_stats.c ui-siprouter/modules/tm/t_stats.c
+--- ui-siprouter~/modules/tm/t_stats.c	2015-12-15 10:05:47.000000000 +0200
++++ ui-siprouter/modules/tm/t_stats.c	2015-12-15 10:08:23.134016221 +0200
+@@ -106,7 +106,9 @@
+ 		(res)->completed_5xx=(s1)->completed_5xx+(s2)->completed_5xx; \
+ 		(res)->completed_6xx=(s1)->completed_6xx+(s2)->completed_6xx; \
+ 		(res)->completed_2xx=(s1)->completed_2xx+(s2)->completed_2xx; \
+-		(res)->replied_locally=(s1)->replied_locally+(s2)->replied_locally; \
++		(res)->rpl_received=(s1)->rpl_received+(s2)->rpl_received; \
++		(res)->rpl_generated=(s1)->rpl_generated+(s2)->rpl_generated; \
++		(res)->rpl_sent=(s1)->rpl_sent+(s2)->rpl_sent; \
+ 		(res)->deleted=(s1)->deleted+(s2)->deleted; \
+ 	}while(0)
+ 
+@@ -149,7 +151,9 @@
+ 										 (unsigned) waiting);
+ 	rpc->struct_add(st, "d", "total", (unsigned) all.transactions);
+ 	rpc->struct_add(st, "d", "total_local", (unsigned)all.client_transactions);
+-	rpc->struct_add(st, "d", "replied_locally", (unsigned)all.replied_locally);
++	rpc->struct_add(st, "d", "rpl_received", (unsigned)all.rpl_received);
++	rpc->struct_add(st, "d", "rpl_generated", (unsigned)all.rpl_generated);
++	rpc->struct_add(st, "d", "rpl_sent", (unsigned)all.rpl_sent);
+ 	rpc->struct_add(st, "ddddd", 
+ 			"6xx", (unsigned int)all.completed_6xx,
+ 			"5xx", (unsigned int)all.completed_5xx,
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tm/t_stats.h ui-siprouter/modules/tm/t_stats.h
+--- ui-siprouter~/modules/tm/t_stats.h	2015-12-15 10:05:47.000000000 +0200
++++ ui-siprouter/modules/tm/t_stats.h	2015-12-15 10:08:43.514016178 +0200
+@@ -52,7 +52,9 @@
+ 	/* number of transactions which completed with this status */
+ 	stat_counter completed_3xx, completed_4xx, completed_5xx, 
+ 		completed_6xx, completed_2xx;
+-	stat_counter replied_locally;
++	stat_counter rpl_received;
++	stat_counter rpl_generated;
++	stat_counter rpl_sent;
+ 	stat_counter deleted;
+ #ifdef TM_MORE_STATS
+ 	/* number of created transactions */
+@@ -129,10 +131,19 @@
+ 	}
+ }
+ 
++inline void static t_stats_rpl_received(void)
++{
++	tm_stats[process_no].s.rpl_received++;
++}
+ 
+-inline void static t_stats_replied_locally(void)
++inline void static t_stats_rpl_generated(void)
+ {
+-	tm_stats[process_no].s.replied_locally++;
++	tm_stats[process_no].s.rpl_generated++;
++}
++
++inline void static t_stats_rpl_sent(void)
++{
++	tm_stats[process_no].s.rpl_sent++;
+ }
+ 
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/tmx/tmx_mod.c ui-siprouter/modules/tmx/tmx_mod.c
+--- ui-siprouter~/modules/tmx/tmx_mod.c	2015-12-15 10:05:47.000000000 +0200
++++ ui-siprouter/modules/tmx/tmx_mod.c	2015-12-15 10:10:08.718015998 +0200
+@@ -92,23 +92,27 @@
+ unsigned long tmx_stats_trans_inuse(void);
+ unsigned long tmx_stats_trans_active(void);
+ unsigned long tmx_stats_rcv_rpls(void);
+-unsigned long tmx_stats_rld_rpls(void);
+-unsigned long tmx_stats_loc_rpls(void);
++unsigned long tmx_stats_abs_rpls(void);
++unsigned long tmx_stats_rld_rcv_rpls(void);
++unsigned long tmx_stats_rld_loc_rpls(void);
++unsigned long tmx_stats_rld_tot_rpls(void);
+ 
+ static stat_export_t mod_stats[] = {
+-	{"UAS_transactions" ,    STAT_IS_FUNC, (stat_var**)tmx_stats_uas_trans   },
+-	{"UAC_transactions" ,    STAT_IS_FUNC, (stat_var**)tmx_stats_uac_trans   },
+-	{"2xx_transactions" ,    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_2xx   },
+-	{"3xx_transactions" ,    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_3xx   },
+-	{"4xx_transactions" ,    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_4xx   },
+-	{"5xx_transactions" ,    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_5xx   },
+-	{"6xx_transactions" ,    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_6xx   },
+-	{"inuse_transactions" ,  STAT_IS_FUNC, (stat_var**)tmx_stats_trans_inuse },
+-	{"active_transactions" , STAT_IS_FUNC, (stat_var**)tmx_stats_trans_active},
+-	{"received_replies" ,    STAT_IS_FUNC, (stat_var**)tmx_stats_rcv_rpls    },
+-	{"relayed_replies" ,     STAT_IS_FUNC, (stat_var**)tmx_stats_rld_rpls    },
+-	{"local_replies" ,       STAT_IS_FUNC, (stat_var**)tmx_stats_loc_rpls    },
+-	{0,0,0}
++	{"UAS_transactions",    STAT_IS_FUNC, (stat_var**)tmx_stats_uas_trans   },
++	{"UAC_transactions",    STAT_IS_FUNC, (stat_var**)tmx_stats_uac_trans   },
++	{"2xx_transactions",    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_2xx   },
++	{"3xx_transactions",    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_3xx   },
++	{"4xx_transactions",    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_4xx   },
++	{"5xx_transactions",    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_5xx   },
++	{"6xx_transactions",    STAT_IS_FUNC, (stat_var**)tmx_stats_trans_6xx   },
++	{"inuse_transactions",  STAT_IS_FUNC, (stat_var**)tmx_stats_trans_inuse },
++	{"active_transactions", STAT_IS_FUNC, (stat_var**)tmx_stats_trans_active},
++	{"rpl_received",        STAT_IS_FUNC, (stat_var**)tmx_stats_rcv_rpls    },
++	{"rpl_absorbed",        STAT_IS_FUNC, (stat_var**)tmx_stats_abs_rpls    },
++	{"rpl_generated",       STAT_IS_FUNC, (stat_var**)tmx_stats_rld_loc_rpls},
++	{"rpl_relayed",         STAT_IS_FUNC, (stat_var**)tmx_stats_rld_rcv_rpls},
++	{"rpl_sent",            STAT_IS_FUNC, (stat_var**)tmx_stats_rld_tot_rpls},
++	{0, 0, 0}
+ };
+ #endif
+ 
+@@ -671,28 +675,31 @@
+ unsigned long tmx_stats_rcv_rpls(void)
+ {
+ 	tmx_stats_update();
+-	return _tmx_stats_all.completed_6xx
+-		+ _tmx_stats_all.completed_5xx
+-		+ _tmx_stats_all.completed_4xx
+-		+ _tmx_stats_all.completed_3xx
+-		+ _tmx_stats_all.completed_2xx;
++	return _tmx_stats_all.rpl_received;
+ }
+ 
+-unsigned long tmx_stats_rld_rpls(void)
++unsigned long tmx_stats_abs_rpls(void)
+ {
+ 	tmx_stats_update();
+-	return _tmx_stats_all.completed_6xx
+-		+ _tmx_stats_all.completed_5xx
+-		+ _tmx_stats_all.completed_4xx
+-		+ _tmx_stats_all.completed_3xx
+-		+ _tmx_stats_all.completed_2xx
+-		- _tmx_stats_all.replied_locally;
++	return _tmx_stats_all.rpl_received - tmx_stats_rld_rcv_rpls();
+ }
+ 
+-unsigned long tmx_stats_loc_rpls(void)
++unsigned long tmx_stats_rld_loc_rpls(void)
+ {
+ 	tmx_stats_update();
+-	return _tmx_stats_all.replied_locally;
++	return _tmx_stats_all.rpl_generated;
++}
++
++unsigned long tmx_stats_rld_tot_rpls(void)
++{
++	tmx_stats_update();
++	return _tmx_stats_all.rpl_sent;
++}
++
++unsigned long tmx_stats_rld_rcv_rpls(void)
++{
++	tmx_stats_update();
++	return _tmx_stats_all.rpl_sent - _tmx_stats_all.rpl_generated;
+ }
+ 
+ #endif

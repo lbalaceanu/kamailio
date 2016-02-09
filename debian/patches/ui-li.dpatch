@@ -1,0 +1,1248 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## ui-li.dpatch by Timo Reimann <timo.reimann@1und1.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Lawful Interception implementation
+
+@DPATCH@
+diff -urNad ui-siprouter~/modules/ui-li/Makefile ui-siprouter/modules/ui-li/Makefile
+--- ui-siprouter~/modules/ui-li/Makefile	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/Makefile	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,12 @@
++# WARNING: do not run this directly, it should be run by the master Makefile
++
++include ../../Makefile.defs
++auto_gen=
++NAME=ui-li.so
++LIBS= 
++
++DEFS+=-DOPENSER_MOD_INTERFACE
++
++SERLIBPATH=../../lib
++SER_LIBS+=$(SERLIBPATH)/kmi/kmi
++include ../../Makefile.modules
+diff -urNad ui-siprouter~/modules/ui-li/callbacks.c ui-siprouter/modules/ui-li/callbacks.c
+--- ui-siprouter~/modules/ui-li/callbacks.c	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/callbacks.c	2012-06-28 14:54:18.327882474 +0300
+@@ -0,0 +1,356 @@
++#include "callbacks.h"
++#include "dexport.h"
++#include "network.h"
++
++#include "../../modules/tm/tm_load.h"
++#include "../dialog/dlg_load.h"
++#include "../../timer.h"
++
++
++static void export_message(struct sip_msg *const orig_msg, char *const processed_msg, const int proc_msg_len, dexport_entry_t *const exp_entry);
++static int register_tm_cbs(struct sip_msg *const msg, void *param);
++static void handle_reg_dlg_cbs(struct dlg_cell *dlg, int type, struct dlg_cb_params *params);
++static void handle_exp_dlg_cbs(struct dlg_cell *dlg, int type, struct dlg_cb_params *params);
++static void handle_tm_cbs(struct cell *t, int type, struct tmcb_params *params);
++
++extern struct tm_binds tm_api;
++extern struct dlg_binds dlg_api;
++extern gen_lock_t *exp_list_lock;
++static int spiral_tracked;
++
++static int li_is_maxfwd_present(struct sip_msg* msg , str *foo)
++{
++	int x, err;
++
++	/* lookup into the message for MAX FORWARDS header*/
++	if ( !msg->maxforwards ) {
++		if  ( parse_headers( msg , HDR_MAXFORWARDS_F, 0 )==-1 ){
++			LM_ERR("parsing MAX_FORWARD header failed!\n");
++			return -2;
++		}
++		if (!msg->maxforwards) {
++			LM_DBG("max_forwards header not found!\n");
++			return -1;
++		}
++	} else if (msg->maxforwards->parsed) {
++		trim_len( foo->len , foo->s , msg->maxforwards->body );
++		return (((int)(long)msg->maxforwards->parsed)-1);
++	}
++
++	/* if header is present, trim to get only the string containing numbers */
++	trim_len( foo->len , foo->s , msg->maxforwards->body );
++
++	/* convert from string to number */
++	x = str2s( foo->s,foo->len,&err);
++	if (err){
++		LM_ERR("unable to parse the max forwards number\n");
++		return -2;
++	}
++	return x;
++}
++
++static int li_set_maxfwd(int x, str* s)
++{
++	int i;
++
++	/*rewriting the max-fwd value in the message (buf and orig)*/
++	for(i = s->len - 1; i >= 0; i--) {
++		s->s[i] = (x % 10) + '0';
++		x /= 10;
++		if (x==0) {
++			i = i - 1;
++			break;
++		}
++	}
++	while(i >= 0) s->s[i--] = ' ';
++
++	return 0;
++
++}
++
++
++void consider_exporting(struct dlg_cell* dlg, int type, struct dlg_cb_params *params)
++{
++	str *callid;
++	dexport_entry_t *exp_entry;
++	int val;
++	str mf_value= {0, 0};
++
++	LM_INFO("considering to export SIP message\n");
++
++	if (*params->param == NULL) {
++		LM_INFO("tracking spiraled requests\n");
++		if (dlg_api.register_dlgcb(dlg, DLGCB_SPIRALED, consider_exporting, &spiral_tracked, NULL) != 0) {
++			LM_ERR("could not register consider_exporting() for dialog event DLGCB_SPIRALED\n");
++		}
++	}
++
++	callid = parse_callid(params->req);
++	if (callid == NULL) {
++		LM_ERR("could not parse Call-ID header field\n");
++		return;
++	}
++
++	LM_INFO("looking up Call-ID %.*s...\n", callid->len, callid->s);
++	exp_entry = find_dexport(callid);
++	if (exp_entry == NULL) {
++		LM_INFO("...not found\n");
++		return;
++	}
++	LM_INFO("...found! Proceeding\n");
++
++	val=li_is_maxfwd_present(params->req, &mf_value);
++	if(val < 0) {
++		LM_ERR("failed to extract Max- Forwards header value\n");
++	}
++	else {
++		val++;
++		li_set_maxfwd(val, &mf_value);
++	}
++
++	LM_DBG("in (size: %d): %.*s\n", params->req->len, params->req->len, params->req->buf);
++
++	LM_INFO("getting lock\n");
++	lock_get(exp_list_lock);
++
++	/* if source == myself, don't export */
++	if (atomic_get(export_looped_msg)==0 && ip_addr_cmp(&params->req->rcv.src_ip, &params->req->rcv.dst_ip) ) {
++		LM_NOTICE("Looped message - don't export\n");
++	}
++	else
++		export_message(params->req, params->req->buf, params->req->len, exp_entry);
++
++	/* put it back */
++
++	if (exp_entry->state == STARTING) {
++		LM_INFO("initializing cbs\n");
++
++		LM_INFO("setting up handle_reg_dlg_cbs\n");
++		if (dlg_api.register_dlgcb(dlg, DLGCB_REQ_WITHIN | DLGCB_CONFIRMED | DLGCB_TERMINATED | DLGCB_FAILED, handle_reg_dlg_cbs, exp_entry, NULL) != 0) {
++			LM_ERR("could not register handle_reg_dlg_cbs() for various dialog events (Call-ID: %.*s)\n", callid->len, callid->s);
++		}
++
++		LM_INFO("setting up handle_exp_dlg_cbs\n");
++		if (dlg_api.register_dlgcb(dlg, DLGCB_EXPIRED, handle_exp_dlg_cbs, (void *)exp_entry, NULL) != 0) {
++			LM_ERR("could not register handle_exp_dlg_cbs() for dialog event DLGCB_EXPIRED (Call-ID: %.*s)\n", callid->len, callid->s);
++		}
++
++		exp_entry->state = RUNNING;
++	}
++
++	LM_INFO("setting up tm callbacks\n");
++	if (register_tm_cbs(params->req, exp_entry) <= 0) {
++		LM_ERR("could not register tm-specific callbacks (Call-ID: %.*s)\n", callid->len, callid->s);
++	}
++
++	LM_INFO("releasing lock\n");
++	lock_release(exp_list_lock);
++
++	/* restore max-forwards */
++	if(val > 0) {
++		val--;
++		li_set_maxfwd(val, &mf_value);
++	}
++
++}
++
++
++static void export_message(struct sip_msg *const orig_msg, char *const processed_msg, const int proc_msg_len, dexport_entry_t *const exp_entry)
++{
++	str proc_msg = { processed_msg, proc_msg_len };
++
++	if (exp_entry != NULL) {
++		LM_INFO("delivering message...\n");
++		if (deliver_message(orig_msg, &proc_msg, exp_entry) < 0) {
++			LM_ERR("could not deliver message (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++		} else {
++			LM_INFO("delivered successfully\n");
++		}
++
++		LM_DBG("updating export time\n");
++		exp_entry->last_exp_time = get_ticks();
++	}
++}
++
++
++static int register_tm_cbs(struct sip_msg *const msg, void *param)
++{
++	dexport_entry_t *exp_entry;
++
++	if (tm_api.register_tmcb(msg, 0, TMCB_REQUEST_OUT | TMCB_ACK_NEG_IN | TMCB_REQUEST_PENDING | TMCB_RESPONSE_IN | TMCB_RESPONSE_READY, handle_tm_cbs, param, 0) <= 0) {
++		exp_entry = (dexport_entry_t *)param;
++		LM_ERR("could not register handle_tm_cbs() for various tm events (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++		return -1;
++	}
++
++	return 1;
++}
++
++
++static void handle_reg_dlg_cbs(struct dlg_cell *dlg, int type, struct dlg_cb_params *params)
++{
++	dexport_entry_t *exp_entry = (dexport_entry_t *)*params->param;
++	struct sip_msg *msg;
++
++	LM_INFO("getting lock\n");
++	lock_get(exp_list_lock);
++
++	LM_INFO("handling regular dlg (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++
++	if (type & DLGCB_REQ_WITHIN) {
++		LM_INFO("sequential request was received\n");
++		msg = params->req;
++	} else if (type & DLGCB_CONFIRMED) {
++		LM_INFO("ACK to INVITE's 200 OK was received\n");
++		msg = params->req;
++	} else if (type & DLGCB_TERMINATED) {
++		exp_entry->state = TERMINATING;
++		msg = params->req;
++		LM_INFO("dialog is terminating\n");
++	} else if (type & DLGCB_FAILED) {
++		exp_entry->state = TERMINATING;
++		msg = params->rpl;
++		LM_INFO("dialog failed\n");
++	} else {
++		LM_ERR("received unexpected dlg callback type %d (Call-ID: %.*s)\n", type, exp_entry->callid.len, exp_entry->callid.s);
++		lock_release(exp_list_lock);
++		return;
++	}
++
++	if (msg == NULL || msg == FAKED_REPLY || msg->buf == NULL || msg->len == 0) {
++		LM_INFO("dialog callback does not provide parsed message, dropping out\n");
++		goto done;
++	}
++
++	if (register_tm_cbs(msg, (void *)exp_entry) <= 0) {
++		LM_ERR("could not register tm-specific callbacks (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++	}
++
++	LM_DBG("in (size: %d): %.*s\n", msg->len, msg->len, msg->buf);
++
++	export_message(msg, msg->buf, msg->len, exp_entry);
++
++done:
++	LM_INFO("releasing lock\n");
++	lock_release(exp_list_lock);
++}
++
++
++
++static void handle_exp_dlg_cbs(struct dlg_cell *dlg, int type, struct dlg_cb_params *params)
++{
++	dexport_entry_t *exp_entry = (dexport_entry_t *)*params->param;
++
++	LM_INFO("handling expired dlg (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++
++	if (!(type & DLGCB_EXPIRED)) {
++		LM_ERR("received unexpected dlg callback type %d (Call-ID: %.*s)\n", type, exp_entry->callid.len, exp_entry->callid.s);
++		return;
++	}
++
++	LM_INFO("deleting export context due to expiration (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++	if (delete_dexport(&exp_entry->callid) < 0) {
++		LM_ERR("could not delete export context (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++	}
++}
++
++
++
++static void handle_tm_cbs(struct cell *t, int type, struct tmcb_params *params)
++{
++	struct sip_msg *orig_msg;
++	str processed_msg;
++	dexport_entry_t *exp_entry = (dexport_entry_t *)*params->param;
++
++	LM_INFO("getting lock\n");
++	lock_get(exp_list_lock);
++
++	LM_INFO("handling tm (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++
++	if (type & TMCB_REQUEST_OUT) {
++		LM_INFO("request was sent\n");
++
++		if (params->send_buf.s == NULL || params->send_buf.len == 0) {
++			LM_INFO("tm callback does not provide parsed message, dropping out\n");
++			goto done;
++		}
++
++		LM_DBG("out (size: %d): %.*s\n", params->send_buf.len, params->send_buf.len, params->send_buf.s);
++
++		orig_msg = params->req;
++		processed_msg = params->send_buf;
++
++		export_message(orig_msg, processed_msg.s, processed_msg.len, exp_entry);
++	} else if (type & TMCB_ACK_NEG_IN) {
++		LM_NOTICE("ACK to negative response was sent\n");
++
++		if (params->send_buf.s == NULL || params->send_buf.len == 0) {
++			LM_INFO("tm callback does not provide parsed message, dropping out\n");
++			goto done;
++		}
++
++		orig_msg = params->rpl;
++		processed_msg = params->send_buf;
++
++		LM_NOTICE("out (size: %d): %.*s\n", params->send_buf.len, params->send_buf.len, params->send_buf.s);
++
++		export_message(orig_msg, processed_msg.s, processed_msg.len, exp_entry);
++	} else if (type & TMCB_REQUEST_PENDING) {
++		LM_INFO("request-pending about to be returned\n");
++
++		if (params->send_buf.s == NULL || params->send_buf.len == 0) {
++			LM_INFO("tm callback does not provide parsed message, dropping out\n");
++			goto done;
++		}
++
++		LM_DBG("out (size: %d): %.*s\n", params->send_buf.len, params->send_buf.len, params->send_buf.s);
++
++		orig_msg = params->req;
++		processed_msg = params->send_buf;
++
++		export_message(orig_msg, processed_msg.s, processed_msg.len, exp_entry);
++	} else if (type & TMCB_RESPONSE_IN) {
++		LM_INFO("response was received\n");
++
++		if (params->rpl == NULL || params->rpl == FAKED_REPLY || params->rpl->buf == NULL || params->rpl->len == 0) {
++			LM_INFO("tm callback does not provide parsed message, dropping out\n");
++			goto done;
++		}
++
++		LM_DBG("in (size: %d): %.*s\n", params->rpl->len, params->rpl->len, params->rpl->buf);
++
++		orig_msg = params->rpl;
++		processed_msg.s = params->rpl->buf;
++		processed_msg.len = params->rpl->len;
++
++		/* if source == myself, don't export */
++		if (atomic_get(export_looped_msg)==0 && orig_msg->first_line.u.reply.statuscode!=100
++				&& ip_addr_cmp(&orig_msg->rcv.src_ip, &orig_msg->rcv.dst_ip) ) {
++			LM_NOTICE("Looped message - don't export\n");
++		}
++		else
++			export_message(orig_msg, processed_msg.s, processed_msg.len, exp_entry);
++	} else if (type & TMCB_RESPONSE_READY) {
++		LM_INFO("response about to be sent\n");
++
++		if (params->send_buf.s == NULL || params->send_buf.len == 0) {
++			LM_INFO("tm callback does not provide parsed message, dropping out\n");
++			goto done;
++		}
++
++		LM_DBG("out (size: %d): %.*s\n", params->send_buf.len, params->send_buf.len, params->send_buf.s);
++
++		orig_msg = (params->rpl != NULL && params->rpl != FAKED_REPLY) ? params->rpl : params->req;
++		processed_msg = params->send_buf;
++
++		export_message(orig_msg, processed_msg.s, processed_msg.len, exp_entry);
++	} else {
++		LM_ERR("received unexpected tm callback type %d (Call-ID: %.*s)\n", type, exp_entry->callid.len, exp_entry->callid.s);
++		lock_release(exp_list_lock);
++		return;
++	}
++
++done:
++	LM_INFO("releasing lock\n");
++	lock_release(exp_list_lock);
++}
+diff -urNad ui-siprouter~/modules/ui-li/callbacks.h ui-siprouter/modules/ui-li/callbacks.h
+--- ui-siprouter~/modules/ui-li/callbacks.h	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/callbacks.h	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,13 @@
++#ifndef _CALLBACKS_H_
++#define _CALLBACKS_H_
++
++#include "../dialog/dlg_hash.h"
++
++#include "common.h"
++
++atomic_t* export_looped_msg;
++
++void consider_exporting(struct dlg_cell* dlg, int type, struct dlg_cb_params *params);
++
++#endif	/* _CALLBACKS_H_ */
++
+diff -urNad ui-siprouter~/modules/ui-li/common.c ui-siprouter/modules/ui-li/common.c
+--- ui-siprouter~/modules/ui-li/common.c	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/common.c	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,12 @@
++#include "common.h"
++
++str *parse_callid(struct sip_msg *const msg)
++{
++	if (!msg->callid && (parse_headers(msg, HDR_CALLID_F, 0) == -1 || !msg->callid)) {
++		LM_ERR("bad msg or missing Call-ID header\n");
++		return NULL;
++	}
++
++	return &msg->callid->body;
++}
++
+diff -urNad ui-siprouter~/modules/ui-li/common.h ui-siprouter/modules/ui-li/common.h
+--- ui-siprouter~/modules/ui-li/common.h	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/common.h	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,20 @@
++#ifndef _COMMON_H_
++#define _COMMON_H_
++
++#include "../../parser/msg_parser.h"
++#include "../../str.h"
++
++
++#define INTERCEPT_ID_SIZE 8
++
++
++typedef enum call_state {
++	STARTING,
++	RUNNING,
++	TERMINATING
++} call_state_t;
++
++
++str *parse_callid(struct sip_msg *const msg);
++
++#endif
+diff -urNad ui-siprouter~/modules/ui-li/dexport.c ui-siprouter/modules/ui-li/dexport.c
+--- ui-siprouter~/modules/ui-li/dexport.c	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/dexport.c	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,307 @@
++#include "../../locking.h"
++#include "../../config.h"
++#include "../../mem/shm_mem.h"
++#include "../../timer.h"
++
++#include "dexport.h"
++
++
++extern gen_lock_t *exp_list_lock;
++static dexport_list_t *dexport_list = NULL;
++
++
++static int comp_del_callid(dexport_entry_t *const entry, const void const* comp_arg)
++{
++	str *callid = (str *)comp_arg;
++
++	return (entry->callid.len == callid->len) && (strncmp(entry->callid.s, callid->s, callid->len) == 0) ? 1 : 0;
++}
++
++
++static int comp_del_interval(dexport_entry_t *const entry, const void const* comp_arg)
++{
++	unsigned int interval = *(unsigned int *)comp_arg;
++	unsigned int ticks = get_ticks();
++
++	LM_DBG("time %u: checking call with state %d, last_exp_time %u (interval %u)\n", ticks, entry->state, entry->last_exp_time, interval);
++	if ((entry->state == TERMINATING) && (ticks - entry->last_exp_time > interval)) {
++		LM_DBG("entry with Call-ID %.*s must be deleted\n", entry->callid.len, entry->callid.s);
++		return 1;
++	} else {
++		return 0;
++	}
++}
++
++
++static int comp_del_always(dexport_entry_t *const entry, const void const* comp_arg)
++{
++	return 1;
++}
++
++
++static void delete_entry_content(dexport_entry_t *const entry)
++{
++	if (entry->callid.s != NULL) { 
++		shm_free(entry->callid.s);
++	}
++	if (entry->supplement.s != NULL) {
++		shm_free(entry->supplement.s);
++	}
++}
++
++
++static void delete_dexport_entry(dexport_entry_t *entry)
++{
++	if (entry != NULL) {
++		delete_entry_content(entry);
++		shm_free(entry);
++		--dexport_list->num_entries;
++	}
++}
++
++
++static dexport_entry_t *_find_dexport(const str *const callid)
++{
++	dexport_entry_t *entry;
++
++	if (dexport_list->first == NULL) {
++		return NULL;
++	}
++
++	for (entry = dexport_list->first; entry != NULL; entry = entry->next) {
++		if ((entry->callid.len == callid->len) && (strncmp(entry->callid.s, callid->s, callid->len) == 0)) {
++			break;
++		}
++	}
++
++	return entry;
++}
++
++
++static int _delete_dexport(compare_delete_f compare_delete, const void const* comp_arg, const int max_delete)
++{
++	dexport_entry_t *entry, *last_entry, *del_entry;
++	entry = dexport_list->first;
++	last_entry = NULL;
++	int deleted = 0;
++
++	if (dexport_list->first == NULL) {
++		return 0;
++	}
++
++	while (entry != NULL) {
++		del_entry = entry;
++		entry = entry->next;
++
++		if (compare_delete(del_entry, comp_arg) == 1) {
++			LM_DBG("found entry meeting deletion criteria, belonging to Call-ID %.*s -- deleting.\n", del_entry->callid.len, del_entry->callid.s);
++
++			/* adjust dexport_list */
++			if (dexport_list->first == del_entry) {
++				/* deleted item was first in list -- set new first item to next in list */
++				dexport_list->first = entry;
++			} else {
++				/* deleted item was in-between or at the end -- have list skip deleted item */
++				last_entry->next = entry;
++			}
++
++			delete_dexport_entry(del_entry);
++			del_entry = NULL;
++			++deleted;
++
++			if (deleted == max_delete) {
++				break;
++			}
++		} else {
++			last_entry = del_entry;
++		}
++	}
++
++	return deleted;
++}
++
++
++
++int init_dexport_list(void) {
++	dexport_list = shm_malloc(sizeof(dexport_list_t));
++	if (dexport_list == NULL) {
++		LM_CRIT("could not allocate %d bytes of memory for dexport list\n", sizeof(dexport_list_t));
++		return -1;
++	}
++	bzero(dexport_list, sizeof(dexport_list_t));
++
++	return 0;
++}
++
++
++int add_dexport(const str *const callid, const str *const supplement)
++{
++	dexport_entry_t *entry = NULL;
++	int is_new_entry = 0;
++
++	if (callid == NULL || supplement == NULL) {
++		LM_ERR("either Call-ID or supplementary data not given, cannot add export entry.\n");
++		return -1;
++	}
++
++	lock_get(exp_list_lock);
++
++	entry = _find_dexport(callid);
++	if (entry == NULL) {
++		LM_DBG("creating new export\n");
++
++		/* create new entry */
++		entry = shm_malloc(sizeof(dexport_entry_t));
++		if (entry == NULL) {
++			LM_CRIT("could not allocate %d bytes of memory for new dexport entry\n", sizeof(dexport_entry_t));
++			goto error;
++		}
++		is_new_entry = 1;
++		memset(entry, 0, sizeof(*entry));
++
++		/* store Call-ID */
++		entry->callid.s = shm_malloc(callid->len);
++		if (entry->callid.s == NULL) {
++			LM_CRIT("could not allocate %d bytes of memory for new entry's Call-ID\n", callid->len);
++			goto error;
++		}
++		memcpy(entry->callid.s, callid->s, callid->len);
++		entry->callid.len = callid->len;
++		entry->state = STARTING;
++
++		/* hook up new entry in dexport_list */
++		if (dexport_list->first == NULL) {
++			/* first entry in list */
++			dexport_list->first = entry;
++			entry->next = NULL;
++		} else {
++			/* successive entry in list -- put it up front */
++			entry->next = dexport_list->first;
++			dexport_list->first = entry;
++		}
++		++dexport_list->num_entries;
++	}
++
++	/* store supplementary data to existing or new entry (if none stored yet) */
++	if (supplement->s != NULL && supplement->len > 0 && entry->supplement.s == NULL) {
++		LM_DBG("adding supplementary data %.*s\n", supplement->len, supplement->s);
++		entry->supplement.s = shm_malloc(supplement->len + CRLF_LEN);
++		if (entry->supplement.s == NULL) {
++			LM_CRIT("could not allocate %d bytes of memory for supplementary data and CRLF\n", supplement->len + CRLF_LEN);
++			goto error;
++		}
++		memcpy(entry->supplement.s, CRLF, CRLF_LEN);
++		memcpy(entry->supplement.s+CRLF_LEN, supplement->s, supplement->len);
++		entry->supplement.len = supplement->len+CRLF_LEN;
++	}
++
++	lock_release(exp_list_lock);
++	return is_new_entry;
++
++error:
++	if (is_new_entry) {
++		delete_dexport_entry(entry);
++		entry = NULL;
++	}
++	lock_release(exp_list_lock);
++	return -1;
++}
++
++
++int delete_dexport(const str *const callid)
++{
++	int success;
++
++	if (callid == NULL) {
++		LM_ERR("no Call-ID given, cannot delete export entry\n");
++		return -1;
++	}
++
++	lock_get(exp_list_lock);
++
++	success = _delete_dexport(comp_del_callid, callid, 1);
++	if (success != 1) {
++		LM_ERR("no entry found belonging to Call-ID %.*s\n", callid->len, callid->s);
++		success = -1;
++	}
++
++	lock_release(exp_list_lock);
++	return success;
++}
++
++
++int delete_dexport_terminated(const unsigned int interval)
++{
++	int deleted;
++
++	lock_get(exp_list_lock);
++
++	if (dexport_list->first == NULL) {
++		lock_release(exp_list_lock);
++		return 0;
++	}
++
++	deleted = _delete_dexport(comp_del_interval, &interval, -1);
++
++	lock_release(exp_list_lock);
++	return deleted;
++}
++
++
++dexport_entry_t *find_dexport(const str *const callid)
++{
++	dexport_entry_t *entry = NULL;
++
++	if (callid->s == NULL || callid->len == 0) {
++		LM_ERR("Call-ID not given, won't try to find an export entry.");
++		return NULL;
++	}
++
++	lock_get(exp_list_lock);
++
++	entry = _find_dexport(callid);
++
++	lock_release(exp_list_lock);
++
++	return entry;
++}
++
++
++inline int isempty_dexport(void) 
++{
++	int ret;
++
++	lock_get(exp_list_lock);
++	ret = (dexport_list->first == NULL) ? 1 : 0;
++	lock_release(exp_list_lock);
++
++	return ret;
++}
++
++
++inline int num_dexports(void)
++{
++	int num;
++
++	lock_get(exp_list_lock);
++
++	num = dexport_list->num_entries;
++
++	lock_release(exp_list_lock);
++	return num;
++}
++
++
++void destroy_dexport(void)
++{
++	if (dexport_list == NULL) {
++		// initialization must have failed -- bail out immediately
++		return;
++	}
++
++	lock_get(exp_list_lock);
++
++	_delete_dexport(comp_del_always, NULL, -1);
++
++	lock_release(exp_list_lock);
++}
+diff -urNad ui-siprouter~/modules/ui-li/dexport.h ui-siprouter/modules/ui-li/dexport.h
+--- ui-siprouter~/modules/ui-li/dexport.h	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/dexport.h	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,34 @@
++#ifndef _DEXPORT_H_
++#define _DEXPORT_H_
++
++#include "../../str.h"
++
++#include "common.h"
++
++
++typedef struct dexport_entry {
++	str callid;
++	str supplement;
++	call_state_t state;
++	unsigned int last_exp_time;
++	struct dexport_entry *next;
++} dexport_entry_t;
++
++typedef struct dexport_list {
++	int num_entries;
++	dexport_entry_t *first;
++} dexport_list_t;
++
++typedef int (compare_delete_f)(dexport_entry_t *const entry, const void const* comp_arg);
++
++
++int init_dexport_list(void);
++int add_dexport(const str *const callid, const str *const supplement);
++int delete_dexport(const str *const callid);
++int delete_dexport_terminated(const unsigned int interval);
++dexport_entry_t *find_dexport(const str *const callid);
++int isempty_dexport(void);
++int num_dexports(void);
++void destroy_dexport(void);
++
++#endif	/* _DEXPORT_H_ */
+diff -urNad ui-siprouter~/modules/ui-li/network.c ui-siprouter/modules/ui-li/network.c
+--- ui-siprouter~/modules/ui-li/network.c	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/network.c	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,159 @@
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <arpa/inet.h>
++#include <string.h>
++
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <sys/time.h>
++#include <stdio.h>
++
++#include "../../locking.h"
++#include "../../parser/msg_parser.h"
++#include "../../mem/mem.h"
++#include "../../globals.h"
++#include "../../crc.h"
++
++#include "common.h"
++#include "network.h"
++
++#define DBL_CRLF "\r\n\r\n"
++#define DBL_CRLF_LEN (sizeof(DBL_CRLF)-1)
++#define MAX_TIMESTAMP 100
++
++
++static struct sockaddr_in deliver_addr;
++static int deliver_sockfd = 0;
++
++
++static int get_sip_hdr_len(const struct sip_msg *const msg, const str *const proc_msg)
++{
++	char *idx;
++
++	if (msg->buf == proc_msg->s) {
++		// assume message is already completely parsed
++		return msg->eoh - msg->buf - CRLF_LEN;
++	} else {
++		idx = proc_msg->s;
++
++		while (idx <= proc_msg->s + proc_msg->len - DBL_CRLF_LEN) {
++			if (strncmp(DBL_CRLF, idx, DBL_CRLF_LEN) == 0) {
++				return idx - proc_msg->s;
++			}
++
++			++idx;
++		}
++
++		idx += DBL_CRLF_LEN-CRLF_LEN;
++		if (*idx == '\n' || *idx == '\r') {
++			return idx - proc_msg->s;
++		}
++
++		return -1;
++	}
++}
++
++
++
++int init_deliver_sock(const char *const host, const int port)
++{
++	deliver_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
++	if (deliver_sockfd < 0) {
++		LM_CRIT("could not create UDP socket to host %s and port %d\n", host, port);
++		return -1;
++	}
++
++	memset(&deliver_addr, 0, sizeof(deliver_addr));
++	deliver_addr.sin_family = AF_INET;
++	deliver_addr.sin_port = htons(port);
++	inet_pton(AF_INET, host, &deliver_addr.sin_addr);
++
++	return 0;
++}
++
++
++
++void destroy_deliver_sock(void)
++{
++	if (deliver_sockfd > 0) {
++		LM_DBG("closing socket %d\n", deliver_sockfd);
++		close(deliver_sockfd);
++	}
++}
++
++
++
++// builds the envelope for given SIP message and actually sends the packet
++int deliver_message(struct sip_msg *const orig_msg, const str *const processed_msg, dexport_entry_t *const exp_entry)
++{
++	str li_packet = {NULL, processed_msg->len};
++	double now;
++	struct timeval tv;
++	char timestamp[MAX_TIMESTAMP];
++	int timestamp_len;
++	str *supplement = NULL;
++	int sip_hdr_len = -1;
++	int send_result;
++
++	/* parse SIP message completely */
++	if (!orig_msg || !processed_msg || orig_msg->buf != processed_msg->s && parse_headers(orig_msg, HDR_EOH_F, 0) == -1) {
++		LM_ERR("could not parse SIP message (Call-ID: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s);
++		return -1;
++	}
++
++	if (gettimeofday(&tv, NULL) != 0) {
++		LM_ERR("could not get current time of day\n");
++		return -1;
++	}
++
++	now = (double)tv.tv_sec + (double)tv.tv_usec/(1000*1000);
++
++	if (snprintf(timestamp, MAX_TIMESTAMP, "timestamp: %f\r\n", now) >= MAX_TIMESTAMP) {
++		LM_ERR("could not store timestamp in buffer\n");
++	}	
++	timestamp_len = strlen(timestamp);
++	li_packet.len += timestamp_len;
++
++	/* if given, append supplementary data to SIP header */
++	if (exp_entry->state == STARTING && exp_entry->supplement.len > 0) {
++		supplement = &exp_entry->supplement;
++
++		sip_hdr_len = get_sip_hdr_len(orig_msg, processed_msg);
++
++		if (sip_hdr_len <= 0) {
++			LM_ERR("could not compute SIP header length\n");
++			return -1;
++		}
++
++		li_packet.len += supplement->len;
++	}
++
++	li_packet.s = pkg_malloc(li_packet.len);
++	if (li_packet.s == NULL) {
++		LM_CRIT("could not allocate %d bytes of memory for LI packet\n", li_packet.len);
++		return -1;
++	}
++
++	memcpy(li_packet.s, timestamp, timestamp_len);
++
++	if (supplement != NULL) {
++		memcpy(li_packet.s+timestamp_len, processed_msg->s, sip_hdr_len);
++		memcpy(li_packet.s+timestamp_len+sip_hdr_len, supplement->s, supplement->len);
++		memcpy(li_packet.s+timestamp_len+sip_hdr_len+supplement->len, processed_msg->s+sip_hdr_len, processed_msg->len-sip_hdr_len);
++	} else {
++		memcpy(li_packet.s+timestamp_len, processed_msg->s, processed_msg->len);
++	}
++
++	/* exported message transmission */
++	LM_INFO("transmitting LI packet\n");
++	send_result = (sendto(deliver_sockfd, li_packet.s, li_packet.len, 0, (struct sockaddr *)&deliver_addr, sizeof(deliver_addr)) == li_packet.len);
++
++	if (!send_result) {
++		LM_ERR("could not send LI packet over socket (Call-ID: %.*s, exported message: %.*s)\n", exp_entry->callid.len, exp_entry->callid.s, li_packet.len, li_packet.s);
++	}
++
++	pkg_free(li_packet.s);
++
++	return (send_result) ? 0 : -1;
++}
+diff -urNad ui-siprouter~/modules/ui-li/network.h ui-siprouter/modules/ui-li/network.h
+--- ui-siprouter~/modules/ui-li/network.h	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/network.h	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,12 @@
++#ifndef _NETWORK_H_
++#define _NETWORK_H_
++
++#include "dexport.h"
++
++
++int init_deliver_sock(const char *const host, const int port);
++void destroy_deliver_sock(void);
++int deliver_message(struct sip_msg *const orig_msg, const str *const processed_msg, dexport_entry_t *const exp_entry);
++
++#endif	/* _NETWORK_H_ */
++
+diff -urNad ui-siprouter~/modules/ui-li/ui-li.c ui-siprouter/modules/ui-li/ui-li.c
+--- ui-siprouter~/modules/ui-li/ui-li.c	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/ui-li/ui-li.c	2012-06-28 14:48:59.267883730 +0300
+@@ -0,0 +1,276 @@
++#include <stdio.h>
++#include <string.h>
++#include <stdlib.h>
++#include <assert.h>
++
++#include "../../sr_module.h"
++#include "../../mem/mem.h"
++#include "../../mem/shm_mem.h"
++#include "../../locking.h"
++#include "../../lib/kmi/mi.h"
++#include "../../mod_fix.h"
++#include "../../timer.h"
++#include "../../modules/tm/tm_load.h"
++#include "../dialog/dlg_load.h"
++
++#include "common.h"
++#include "dexport.h"
++#include "callbacks.h"
++#include "network.h"
++
++MODULE_VERSION
++
++
++static struct mi_root *mi_get_active_calls(struct mi_root *cmd, void *param);
++static struct mi_root *mi_export_looped_msg(struct mi_root *cmd, void *param);
++static struct mi_root *mi_export_looped_msg_status(struct mi_root *cmd, void *param);
++
++static int mod_init(void);
++static void destroy(void);
++static int init_shmlock(gen_lock_t **lock);
++static void destroy_shmlock(gen_lock_t **lock);
++static int activate_monitoring(struct sip_msg *const msg, const char *const target_geo, const char *const dummy);
++static void cleanup_monitored(unsigned int ticks, void* param);
++
++static char* deliver_host = "localhost";
++static int deliver_port = 8000;
++static unsigned int cleanup_period = 300;               // in seconds
++static unsigned int reaping_time = 180;                 // in seconds
++
++atomic_t* export_looped_msg = NULL;
++
++struct tm_binds tm_api;
++struct dlg_binds dlg_api;
++gen_lock_t *exp_list_lock;
++
++
++
++static cmd_export_t cmds[] = {
++	{"activate_monitoring", (cmd_function)activate_monitoring, 1, fixup_spve_null, 0, REQUEST_ROUTE},
++	{0,0,0,0,0,0}
++};
++
++
++static param_export_t params[] = {
++	{"deliver_host",		STR_PARAM, &deliver_host },
++	{"deliver_port",		INT_PARAM, &deliver_port },
++	{"cleanup_period",      INT_PARAM, &cleanup_period },
++	{"reaping_time",        INT_PARAM, &reaping_time },
++	{0, 0, 0 }
++};
++
++
++static mi_export_t mi_cmds[] = {
++	{"li_get_active_calls",	mi_get_active_calls, MI_NO_INPUT_FLAG, 0, 0 },
++	{"li_export_looped_msg",	mi_export_looped_msg, 0, 0, 0 },
++	{"li_export_looped_msg_status",	mi_export_looped_msg_status, MI_NO_INPUT_FLAG, 0, 0 },
++	{ 0, 0, 0, 0, 0}
++};
++
++
++struct module_exports exports = {
++	"ui-li",
++	DEFAULT_DLFLAGS, /* dlopen flags */
++	cmds,       /* exported functions */
++	params,     /* exported params */
++	0,          /* exported statistics */
++	mi_cmds,    /* exported MI functions */
++	0,          /* exported pseudo-variables */
++	0,          /* extra processes */
++	mod_init,   /* initialization module */
++	0,          /* response function */
++	destroy,    /* destroy function */
++	0,			/* per-child init function */
++};
++
++
++
++static struct mi_root *mi_get_active_calls(struct mi_root *cmd, void *param)
++{
++	struct mi_root *rpl_tree;
++	struct mi_node *node = NULL;
++
++	rpl_tree = init_mi_tree(200, MI_OK_S, MI_OK_LEN);
++	if (rpl_tree == NULL) {
++		return 0;
++	}
++
++	node = addf_mi_node_child(&rpl_tree->node, 0, 0, 0, "number of actively monitored calls: %d\n", num_dexports());
++	if (node == NULL) {
++		free_mi_tree(rpl_tree);
++		return 0;
++	}
++
++	return rpl_tree;
++}
++
++static struct mi_root *mi_export_looped_msg(struct mi_root *cmd, void *param)
++{
++	struct mi_node *node = NULL;
++	unsigned int val;
++
++	node = cmd->node.kids;
++	if ( node == NULL )
++		return init_mi_tree( 400, MI_MISSING_PARM_S, MI_MISSING_PARM_LEN);
++
++	if ( !node->value.s|| !node->value.len|| str2int(&node->value, &val) < 0 )
++		return init_mi_tree( 400, MI_BAD_PARM_S, MI_BAD_PARM_LEN);
++
++	if ( val > 0 )
++		atomic_set(export_looped_msg, 1);
++	else
++		atomic_set(export_looped_msg, 0);
++
++	return init_mi_tree(200, MI_OK_S, MI_OK_LEN);
++}
++
++static struct mi_root *mi_export_looped_msg_status(struct mi_root *cmd, void *param)
++{
++	struct mi_root *rpl_tree;
++	struct mi_node *node = NULL;
++
++	rpl_tree = init_mi_tree(200, MI_OK_S, MI_OK_LEN);
++	if (rpl_tree == NULL) {
++		return 0;
++	}
++
++	node = addf_mi_node_child(&rpl_tree->node, 0, 0, 0, "Export looped messages: %s\n",
++			atomic_get(export_looped_msg)?"YES":"NO");
++	if (node == NULL) {
++		free_mi_tree(rpl_tree);
++		return 0;
++	}
++
++	return rpl_tree;
++}
++
++
++static int mod_init(void)
++{
++	LM_INFO("initializing\n");
++
++	if (register_mi_mod(exports.name, mi_cmds)!=0) {
++		LM_ERR("failed to register MI commands\n");
++		return -1;
++	}
++
++	if (init_dexport_list() != 0) return -1; 
++	if (init_shmlock(&exp_list_lock) != 0) return -1;
++	if (init_deliver_sock(deliver_host, deliver_port) != 0) return -1;
++
++	/* load tm module API interface */
++	if (load_tm_api(&tm_api) != 0) {
++		LM_ERR("cannot load tm API. Is the tm module loaded?\n");
++		return -1;
++	}
++
++	/* load dialog API interface */
++	if (load_dlg_api(&dlg_api) != 0) {
++		LM_ERR("cannot load dialog API. Is the dialog module loaded?\n");
++		return(-1);
++	}
++
++	/* register initial dialog event */
++	if (dlg_api.register_dlgcb(NULL, DLGCB_CREATED, consider_exporting, NULL, NULL) != 0) {
++		LM_ERR("failed to register consider_exporting() for dialog event DLGCB_CREATED\n");
++		return -1;
++	}	
++
++	/* register cleanup function */
++	if (register_timer(cleanup_monitored, NULL, cleanup_period) < 0) {
++		LM_ERR("failed to register cleanup_monitored()\n");
++		return -1;
++	}
++	LM_DBG("registered cleanup process with period %u\n", cleanup_period);
++
++	export_looped_msg = (atomic_t*)shm_malloc(sizeof(atomic_t));
++	if (export_looped_msg == NULL) {
++		LM_ERR("No more shared memory\n");
++		return -1;
++	}
++	atomic_set(export_looped_msg, 1);
++
++	LM_INFO("initialized\n");
++
++	return 0;
++}
++
++
++static void destroy(void)
++{
++	destroy_deliver_sock();
++	destroy_dexport();
++	destroy_shmlock(&exp_list_lock);
++	if ( export_looped_msg )
++		shm_free(export_looped_msg);
++}
++
++
++static int init_shmlock(gen_lock_t **lock)
++{
++	*lock = lock_alloc();
++	if (lock == NULL) {
++		LM_CRIT("cannot allocate memory for lock\n");
++		return -1;
++	}
++
++	if (lock_init(*lock) == 0) {
++		LM_CRIT("cannot initialize lock\n");
++		return -1;
++	}
++
++	return 0;
++}
++
++
++static void destroy_shmlock(gen_lock_t **lock)
++{
++	if (*lock) {
++		lock_destroy(*lock);
++		lock_dealloc((void *)*lock);
++		*lock = NULL;
++	}
++}
++
++
++static int activate_monitoring(struct sip_msg *const msg, const char *const target_geo, const char *const dummy)
++{
++	str tgeo, *callid;
++	int add_res;
++
++	if (fixup_get_svalue(msg, (gparam_p)target_geo, &tgeo) < 0) {
++		LM_ERR("no hidden target geo number available\n");
++		return -1;
++	}
++
++	callid = parse_callid(msg);
++	if (callid == NULL) {
++		LM_ERR("could not parse Call-ID header field\n");
++		return -1;
++	}
++
++	LM_INFO("activating monitor operation for Call-ID %.*s\n", callid->len, callid->s);
++	if (tgeo.len > 0) {
++		LM_INFO("also adding supplementary data [%.*s]\n", tgeo.len, tgeo.s);
++	}
++
++	add_res = add_dexport(callid, &tgeo);
++	if (add_res < 0) {
++		LM_ERR("failed to activate monitoring of session for Call-ID %.*s\n", callid->len, callid->s);
++		return -1;
++	} else if (add_res == 0) {
++		LM_DBG("session with Call-ID %.*s is already monitored", callid->len, callid->s);
++	}
++	LM_INFO("activation complete\n");
++
++	return 1;
++}
++
++
++static void cleanup_monitored(unsigned int ticks, void* param)
++{
++	int reaped;
++
++	reaped = delete_dexport_terminated(reaping_time);
++	LM_DBG("reaped %u terminated export contexts\n", reaped);
++}

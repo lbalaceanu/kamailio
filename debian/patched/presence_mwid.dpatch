@@ -1,0 +1,3 @@
+patching file modules/presence/hash.c
+patching file modules/presence/hash.h
+patching file modules/presence/subscribe.c

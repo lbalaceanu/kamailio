@@ -1,0 +1,576 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## reg_multi_handling_intern.dpatch by  <Patric Marschall <patric.marschall@1und1.de>>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/p_usrloc/p_usrloc_mod.c ui-siprouter/modules/p_usrloc/p_usrloc_mod.c
+--- ui-siprouter~/modules/p_usrloc/p_usrloc_mod.c	2015-02-27 09:43:13.247693412 +0100
++++ ui-siprouter/modules/p_usrloc/p_usrloc_mod.c	2015-02-27 11:27:59.383638641 +0100
+@@ -91,6 +91,7 @@
+ #define METHODS_COL    "methods"
+ #define INSTANCE_COL   "instance"
+ #define REG_ID_COL     "reg_id"
++#define UNIQ_COL       "uniq"
+ #define LAST_MOD_COL   "last_modified"
+ 
+ static int mod_init(void);                          /*!< Module initialization function */
+@@ -158,6 +159,7 @@
+ str instance_col    = str_init(INSTANCE_COL);	/*!< Name of column containing the SIP instance value */
+ str reg_id_col      = str_init(REG_ID_COL);		/*!< Name of column containing the reg-id value */
+ str last_mod_col     = str_init(LAST_MOD_COL);		/*!< Name of column containing the last modified date */
++str uniq_col       = str_init(UNIQ_COL);       /*!< Name of column containing uniq value */
+ int db_mode         = 3;				/*!< Database sync scheme:  1-write through, 2-write back, 3-only db */
+ int use_domain      = 0;				/*!< Whether usrloc should use domain part of aor */
+ int desc_time_order = 0;				/*!< By default do not enable timestamp ordering */
+@@ -243,6 +245,7 @@
+ 	{"default_db_type",   STR_PARAM, &default_db_type.s   },
+ 	{"domain_db",         STR_PARAM, &domain_db.s         },
+ 	{"instance_column",      STR_PARAM, &instance_col.s  	 },
++	{"uniq_column",          STR_PARAM, &uniq_col.s          },
+ 	{"reg_id_column",      	 STR_PARAM, &reg_id_col.s        },
+ 	{"write_db_url",         STR_PARAM, &write_db_url.s      },
+ 	{"read_db_url",          STR_PARAM, &read_db_url.s       },
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/p_usrloc/p_usrloc_mod.h ui-siprouter/modules/p_usrloc/p_usrloc_mod.h
+--- ui-siprouter~/modules/p_usrloc/p_usrloc_mod.h	2015-02-27 09:43:13.247693412 +0100
++++ ui-siprouter/modules/p_usrloc/p_usrloc_mod.h	2015-02-27 11:27:59.383638641 +0100
+@@ -84,6 +84,7 @@
+ extern str methods_col;
+ extern str instance_col;
+ extern str reg_id_col;
++extern str uniq_col;
+ extern str last_mod_col;
+ 
+ extern int db_mode;
+
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/p_usrloc/ucontact.c ui-siprouter/modules/p_usrloc/ucontact.c
+--- ui-siprouter~/modules/p_usrloc/ucontact.c	2015-02-27 09:43:13.247693412 +0100
++++ ui-siprouter/modules/p_usrloc/ucontact.c	2015-02-27 11:27:59.383638641 +0100
+@@ -40,6 +40,7 @@
+ #include "ucontact.h"
+ #include "ul_db_layer.h"
+ #include "dlist.h"
++#include "p_usrloc_mod.h"
+ 
+ /*!
+  * \brief Create a new contact structure
+@@ -76,6 +77,9 @@
+ 	if (_ci->instance.s && _ci->instance.len) {
+ 		if (shm_str_dup( &c->instance, &_ci->instance) < 0) goto error;
+ 	}
++	if (_ci->uniq.s && _ci->uniq.len) {
++	    if (shm_str_dup( &c->uniq, &_ci->uniq) < 0) goto error;
++	}
+ 
+ 	c->domain = _dom;
+ 	c->aor = _aor;
+@@ -100,6 +104,7 @@
+ 	if (c->c.s) shm_free(c->c.s);
+ 	if (c->ruid.s) shm_free(c->ruid.s);
+ 	if (c->instance.s) shm_free(c->instance.s);
++	if (c->uniq.s) shm_free(c->uniq.s);
+ 	shm_free(c);
+ 	return 0;
+ }
+@@ -120,6 +125,7 @@
+ 	if (_c->c.s) shm_free(_c->c.s);
+ 	if (_c->ruid.s) shm_free(_c->ruid.s);
+ 	if (_c->instance.s) shm_free(_c->instance.s);
++	if (_c->uniq.s) shm_free(_c->uniq.s);
+ 	shm_free( _c );
+ }
+ 
+@@ -178,6 +184,8 @@
+ 	fprintf(_f, "instance  : '%.*s'\n",
+ 		_c->instance.len, ZSW(_c->instance.s));
+ 	fprintf(_f, "reg-id    : %u\n", _c->reg_id);
++	fprintf(_f, "uniq  : '%.*s'\n",
++	        _c->uniq.len, ZSW(_c->uniq.s));
+ 	fprintf(_f, "next      : %p\n", _c->next);
+ 	fprintf(_f, "prev      : %p\n", _c->prev);
+ 	fprintf(_f, "~~~/Contact~~~~\n");
+
+@@ -211,18 +219,20 @@
+ 
+ 	char* ptr;
+ 
+-	/* Update gruu */
+-	if(_ci->instance.s!=NULL && _ci->instance.len>0) {
++	if(_ci->instance.s!=NULL && _ci->instance.len>0)
++	{
+ 	    update_str (& _c->instance, &_ci->instance);
+ 	}
+-	/* Update contact */
+-	if(_ci->c!=NULL && _ci->c->s!=NULL && _ci->c->len>0) {
+-	    update_str( &_c->c, _ci->c);
++
++	if(_ci->uniq.s!=NULL && _ci->uniq.len>0)
++	{
++	    update_str (& _c->uniq, &_ci->uniq);
+ 	}
+-	/* Update callid */
+-	if(_ci->callid!=NULL && _ci->callid->s!=NULL && _ci->callid->len>0) {
++
++	if(_ci->c!=NULL && _ci->c->s!=NULL && _ci->c->len>0)
++	    update_str( &_c->c, _ci->c);
++	if(_ci->callid!=NULL && _ci->callid->s!=NULL && _ci->callid->len>0)
+ 	    update_str( &_c->callid, _ci->callid);	
+-	}
+ 
+ 	/* No need to update Callid as it is constant 
+ 	 * per ucontact (set at insert time)  -bogdan */
+@@ -407,6 +417,7 @@
+  * \param _c inserted contact
+  * \return 0 on success, -1 on failure
+  */
++
+ int db_insert_ucontact(ucontact_t* _c)
+ {
+ 	char* dom;
+@@ -578,6 +589,17 @@
+ 	vals[nr_cols].val.int_val = (int)_c->reg_id;
+ 	nr_cols++;
+ 
++	keys[nr_cols] = &uniq_col;
++	if(_c->uniq.len>0)
++	{
++	    vals[nr_cols].type = DB1_STR;
++	    vals[nr_cols].nul = 0;
++	    vals[nr_cols].val.str_val = _c->uniq;
++	} else {
++	    vals[nr_cols].nul = 1;
++	}
++	nr_cols++;
++
+ 	nr_cols_key  = nr_cols;
+ 	/* to prevent errors from the DB because of duplicated entries */
+ 	
+@@ -602,8 +624,8 @@
+ 	db_val_t vals1[4];
+ 	int n1;
+ 
+-	db_key_t keys2[14];
+-	db_val_t vals2[14];
++	db_key_t keys2[15];
++	db_val_t vals2[15];
+ 	int nr_cols2;
+ 
+ 	if (_c->flags & FL_MEM) {
+@@ -628,6 +650,7 @@
+ 	keys2[11] = &ruid_col;
+ 	keys2[12] = &instance_col;
+ 	keys2[13] = &reg_id_col;
++	keys2[14] = &uniq_col;
+ 
+ 	n1 = 0;
+ 	keys1[n1] = &user_col;
+@@ -735,6 +758,15 @@
+ 	vals2[nr_cols2].val.int_val = (int)_c->reg_id;
+ 
+ 	nr_cols2++;
++	if(_c->uniq.len>0)
++	{
++	    vals2[nr_cols2].type = DB1_STR;
++	    vals2[nr_cols2].nul = 0;
++	    vals2[nr_cols2].val.str_val = _c->uniq;
++	} else {
++	    vals2[nr_cols2].nul = 1;
++	}
++	nr_cols2++;
+ 
+ 	if (use_domain) {
+ 	    keys1[n1] = &domain_col;
+@@ -913,6 +945,20 @@
+    vals2[n2].val.int_val = (int)_c->reg_id;
+    n2++;
+ 
++
++   keys2[n2] = &uniq_col;
++
++   if(_c->uniq.len>0)
++   {
++       vals2[n2].type = DB1_STR;
++       vals2[n2].nul = 0;
++       vals2[n2].val.str_val = _c->uniq;
++   } else {
++       vals2[n2].nul = 1;
++   }
++   n2++;
++
++
+    user = *_c->aor;
+ 
+    if (use_domain) {
+
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/p_usrloc/udomain.c ui-siprouter/modules/p_usrloc/udomain.c
+--- ui-siprouter~/modules/p_usrloc/udomain.c	2015-02-27 09:43:13.247693412 +0100
++++ ui-siprouter/modules/p_usrloc/udomain.c		2015-02-27 11:27:59.383638641 +0100
+@@ -343,6 +343,11 @@
+ 		ci.reg_id = VAL_UINT(vals+15);
+ 	}
+ 
++	if (!VAL_NULL(vals+16)) {
++	    ci.uniq.s = (char*)VAL_STRING(vals+16);
++	    ci.uniq.len = strlen(ci.uniq.s);
++	}
++	
+ 	return &ci;
+ }
+ 
+@@ -358,7 +363,7 @@
+ urecord_t* db_load_urecord(udomain_t* _d, str *_aor)
+ {
+ 	ucontact_info_t *ci;
+-	db_key_t columns[16];
++	db_key_t columns[17];
+ 	db_key_t keys[2];
+ 	db_key_t order;
+ 	db_val_t vals[2];
+@@ -407,13 +412,14 @@
+ 	columns[13] = &ruid_col;
+ 	columns[14] = &instance_col;
+ 	columns[15] = &reg_id_col;
++	columns[16] = &uniq_col;
+ 
+ 	if (desc_time_order)
+ 		order = &last_mod_col;
+ 	else
+ 		order = &q_col;
+ 
+-	if (ul_db_layer_query(_d,  &vals[0].val.str_val,  &vals[1].val.str_val, keys, 0, vals, columns, (use_domain)?2:1, 16, order,
++	if (ul_db_layer_query(_d,  &vals[0].val.str_val,  &vals[1].val.str_val, keys, 0, vals, columns, (use_domain)?2:1, 17, order,
+ 				&res) < 0) {
+ 		LM_ERR("db_query failed\n");
+ 		return 0;
+@@ -465,7 +471,7 @@
+ urecord_t* db_load_urecord_by_ruid(udomain_t* _d, str *_ruid)
+ {
+ 	ucontact_info_t *ci;
+-	db_key_t columns[18];
++	db_key_t columns[19];
+ 	db_key_t keys[1];
+ 	db_key_t order;
+ 	db_val_t vals[1];
+@@ -502,6 +508,7 @@
+ 	columns[15] = &reg_id_col;
+ 	columns[16] = &user_col;
+ 	columns[17] = &domain_col;
++	columns[18] = &uniq_col;
+ 
+ 	if (desc_time_order)
+ 		order = &last_mod_col;
+@@ -533,7 +540,7 @@
+ 		goto done;
+ 	}
+ 
+-	aor.s = (char*)VAL_STRING(ROW_VALUES(row) + 15);
++	aor.s = (char*)VAL_STRING(ROW_VALUES(row) + 16);
+ 	aor.len = strlen(aor.s);
+ 
+ 	if (use_domain) {
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/p_usrloc/urecord.c ui-siprouter/modules/p_usrloc/urecord.c
+--- ui-siprouter~/modules/p_usrloc/urecord.c	2015-02-27 09:43:13.247693412 +0100
++++ ui-siprouter/modules/p_usrloc/urecord.c		2015-02-27 11:27:59.387638641 +0100
+@@ -304,7 +304,8 @@
+ {
+ 	ucontact_t* ptr, *t;
+ 	cstate_t old_state;
+-	int op, res;
++	int op;
++	int res;
+ 
+ 	ptr = _r->contacts;
+ 
+@@ -639,7 +640,27 @@
+ 	str i2;
+ 	
+ 	if (_ci->instance.s == NULL || _ci->instance.len <= 0) {
+-		return get_ucontact(_r, _c, _ci->callid, _ci->path, _ci->cseq, _co);
++	    //check uniq; if !uniq, return get_ucontact
++	    if (_ci->uniq.s == NULL || _ci->uniq.len <=0 ){
++	        return get_ucontact(_r, _c, _ci->callid, _ci->path, _ci->cseq, _co);
++	    }
++
++	    /* find by uniq */
++	    ptr = _r->contacts;
++	    while(ptr) {
++	        if (ptr->uniq.len > 0)
++	        {
++	            i1 = _ci->uniq;
++	            i2= ptr->uniq;
++	            if(i1.len==i2.len && memcmp(i1.s, i2.s, i2.len)==0) {
++	                *_co = ptr;
++	                return 0;
++	            }
++	        }
++
++	        ptr = ptr->next;
++	    }
++	    return 1;
+ 	}
+ 
+ 	/* find by instance */
+
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/registrar/save.c ui-siprouter/modules/registrar/save.c
+--- ui-siprouter~/modules/registrar/save.c	2015-02-27 09:41:52.279694118 +0100
++++ ui-siprouter/modules/registrar/save.c	2015-02-27 11:27:59.391638641 +0100
+@@ -379,6 +379,9 @@
+ 		}
+ 		if(_c->instance!=NULL && _c->instance->body.len>0)
+ 			ci.instance = _c->instance->body;
++		//adding uniq to ci struct
++		if (_c->uniq!=NULL && _c->uniq->body.len >0)
++		    ci.uniq = _c->uniq->body;
+ 		if(_use_regid && _c->instance!=NULL && _c->reg_id!=NULL && _c->reg_id->body.len>0) {
+ 			if(str2int(&_c->reg_id->body, &ci.reg_id)<0 || ci.reg_id==0)
+ 			{
+@@ -553,16 +556,21 @@
+ 	return -1;
+ }
+ 
+-
++/* returns
++ * 0 - if max_contacts will not be reached by uniq,sip.instance or regular contact match
++ * -1 - on too many contacts or other error
++ *  -2 - if we reach max_contacts, but we update the contacts by User Agent and it's all fine */
+ static int test_max_contacts(struct sip_msg* _m, urecord_t* _r, contact_t* _c,
+-		ucontact_info_t *ci, int mc)
++		ucontact_info_t *ci, int mc, int _use_regid)
+ {
+ 	int num;
+ 	int e;
+ 	ucontact_t* ptr, *cont;
+ 	int ret;
+-
++	contact_t* c;
++	str * i1,*i2;
+ 	num = 0;
++	int expires;
+ 	ptr = _r->contacts;
+ 	while(ptr) {
+ 		if (VALID_CONTACT(ptr, act_time)) {
+@@ -571,12 +579,18 @@
+ 		ptr = ptr->next;
+ 	}
+ 	LM_DBG("%d valid contacts\n", num);
+-
+-	for( ; _c ; _c = get_next_contact(_c) ) {
++    
++    c = _c;
++    for( ; c ; c = get_next_contact(c) ) {
+ 		/* calculate expires */
+-		calc_contact_expires(_m, _c->expires, &e);
++		calc_contact_expires(_m, c->expires, &e);
++		/* pack the contact info */
++		if ( (ci=pack_ci( 0, c, e, 0, _use_regid))==0 ) {
++		    LM_ERR("failed to pack contact specific info\n");
++		    return -1;
++		}
++		ret = ul.get_ucontact_by_instance( _r, &c->uri, ci, &cont);
+ 
+-		ret = ul.get_ucontact_by_instance( _r, &_c->uri, ci, &cont);
+ 		if (ret==-1) {
+ 			LM_ERR("invalid cseq for aor <%.*s>\n",_r->aor.len,_r->aor.s);
+ 			rerrno = R_INV_CSEQ;
+@@ -594,11 +608,84 @@
+ 
+ 	LM_DBG("%d contacts after commit\n", num);
+ 	if (num > mc) {
+-		LM_INFO("too many contacts for AOR <%.*s>\n", _r->aor.len, _r->aor.s);
+-		rerrno = R_TOO_MANY;
+-		return -1;
+-	}
++       /* REGISTER requests processing should be atomic, so we first have to know 
++        * if we can match all contacts in the request by User Agent so still don't reach max_contacts.
++        * If we can't do that, send 503*/ 
++       c = _c;
++
++       /* here we get the actual number of contacts after commit, considering User Agent overwrite */
++       for( ; c ; c = get_next_contact(c) ) {
++           /* calculate expires */
++           calc_contact_expires(_m, c->expires, &expires);
++
++           /* pack the contact info */
++           if ( (ci=pack_ci( 0, c, expires, 0, _use_regid))==0 ) {
++               LM_ERR("failed to pack contact specific info\n");
++               return -1;
++           }
++           if (ci->user_agent != NULL && ci->user_agent->len > 0)
++           {
++               /* find by User Agent and decrease */
++               ptr = _r->contacts;
++               while(ptr) {
++                   if ( ptr->user_agent.len > 0){
++                       i1 = ci->user_agent;
++                       i2= &ptr->user_agent;
++                       if(i1 && i2 && i1->s && i2->s &&
++                           i1->len==i2->len && memcmp(i1->s, i2->s, i2->len)==0) {
++                           num--;
++                           break;
++                       }
++                   }
++               ptr = ptr->next;
++               }
++           }
++       }
+ 
++       LM_DBG("%d contacts after commit with User Agent overwrite\n", num);
++
++       /* if still we have too many contacts after commit, send 513 */
++       if (num > mc) {
++           LM_INFO("too many contacts for AOR <%.*s>\n", _r->aor.len, _r->aor.s);
++           rerrno = R_TOO_MANY;
++           return -1;
++       }
++
++       c = _c;
++       for( ; c ; c = get_next_contact(c) ) {
++           /* calculate expires */
++           calc_contact_expires(_m, c->expires, &expires);
++
++           /* pack the contact info */
++           if ( (ci=pack_ci( 0, c, expires, 0, _use_regid))==0 ) {
++               LM_ERR("failed to pack contact specific info\n");
++               return -1;
++           }
++           if (ci->user_agent != NULL && ci->user_agent->len > 0)
++           {
++               /* find by User Agent and replace if found */
++               ptr = _r->contacts;
++               while(ptr) {
++                   if ( ptr->user_agent.len > 0){
++                       i1 = ci->user_agent;
++                       i2= &ptr->user_agent;
++                       if(i1 && i2 && i1->s && i2->s &&
++                           i1->len==i2->len && memcmp(i1->s, i2->s, i2->len)==0) {
++                           LM_DBG("updating contact with the same User Agent\n");
++                           if (ul.update_ucontact(_r, ptr, ci) < 0) {
++                               rerrno = R_UL_UPD_C;
++                               LM_ERR("failed to update contact\n");
++                               return -1;
++                           }
++                           break;
++                       }
++                   }
++                   ptr = ptr->next;
++               }
++           }
++       }
++   return -2;
++   }
+ 	return 0;
+ }
+ 
+@@ -642,7 +729,10 @@
+ 		maxc = reg_get_crt_max_contacts();
+ 		if(maxc>0) {
+ 			_c = get_first_contact(_m);
+-			if(test_max_contacts(_m, _r, _c, ci, maxc) != 0)
++			ret = test_max_contacts(_m, _r, _c, ci, maxc, _use_regid);
++			if( ret == -2 )
++			    return 0;
++            else if (ret == -1)
+ 				goto error;
+ 		}
+ 	}
+
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/usrloc/usrloc.h ui-siprouter/modules/usrloc/usrloc.h
+--- ui-siprouter~/modules/usrloc/usrloc.h	2015-02-27 09:41:52.335694117 +0100
++++ ui-siprouter/modules/usrloc/usrloc.h	2015-02-27 11:27:59.399638641 +0100
+@@ -89,6 +89,7 @@
+ 	time_t last_keepalive;  /*!< last keepalive timestamp */
+ 	unsigned int methods;   /*!< Supported methods */
+ 	str instance;           /*!< SIP instance value - gruu */
++	str uniq;               /*!< uniq parameter */
+ 	unsigned int reg_id;    /*!< reg-id parameters */
+ 	int tcpconn_id;          /* unique tcp connection id */
+ #ifdef WITH_XAVP
+@@ -115,6 +116,7 @@
+ 	struct socket_info *sock; /*!< socket informations */
+ 	unsigned int methods;     /*!< supported methods */
+ 	str instance;             /*!< SIP instance value - gruu */
++	str uniq;               /*!< uniq parameter */
+ 	unsigned int reg_id;      /*!< reg-id parameters */
+ 	int tcpconn_id;
+ #ifdef WITH_XAVP
+
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/parser/contact/contact.c ui-siprouter/parser/contact/contact.c
+--- ui-siprouter~/parser/contact/contact.c	2015-02-27 09:41:52.387694117 +0100
++++ ui-siprouter/parser/contact/contact.c	2015-02-27 11:27:59.431638641 +0100
+@@ -186,6 +186,7 @@
+ {
+ 	contact_t* c;
+ 	param_hooks_t hooks;
++	str uri;
+ 
+ 	while(1) {
+ 		     /* Allocate and clear contact structure */
+@@ -223,6 +224,16 @@
+ 		}
+ 
+ 		trim(&c->uri);
++
++		uri = c->uri;
++
++		//this is a hack, because we are looking for parameters inside the URI, but that's how uniq is used (e.g. Contact:<...;uniq=...>;expires=...
++		if (parse_params(&uri, CLASS_CONTACT, &hooks, &c->params) < 0) {
++		    LOG(L_ERR, "parse_contacts(): Error while parsing parameters\n");
++		    goto error;
++		}
++
++		c->uniq = hooks.contact.uniq;
+ 		
+ 		if (_s->len == 0) goto ok;
+ 		
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/parser/parse_param.c ui-siprouter/parser/parse_param.c
+--- ui-siprouter~/parser/contact/contact.h	2015-02-27 09:41:52.387694117 +0100
++++ ui-siprouter/parser/contact/contact.h	2015-02-27 11:27:59.439638640 +0100
+@@ -49,6 +49,7 @@
+ 	param_t* methods;       /* methods parameter hook */
+ 	param_t* received;      /* received parameter hook */
+ 	param_t* instance;      /* sip.instance parameter hook */
++	param_t* uniq;          /* uniq parameter hook */
+ 	param_t* reg_id;        /* reg-id parameter hook */
+ 	param_t* params;        /* List of all parameters */
+ 	int len;                /* Total length of the element */
+
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/parser/parse_param.c ui-siprouter/parser/parse_param.c
+--- ui-siprouter~/parser/parse_param.c	2015-02-27 09:41:52.391694117 +0100
++++ ui-siprouter/parser/parse_param.c	2015-02-27 11:27:59.447638640 +0100
+@@ -167,6 +167,14 @@
+ 			_h->contact.instance = _p;
+ 		}
+ 		break;
++	case 'u':
++	case 'U':
++	    if ((_p->name.len == 4) &&
++	            (!strncasecmp(_p->name.s+1, "niq", 3))) {
++	            _p->type = P_UNIQ;
++	            _h->contact.uniq = _p;
++	    }
++	    break;
+ 	case 'o':
+ 	case 'O':
+ 		if ((_p->name.len == 2) &&
+
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/parser/parse_param.h ui-siprouter/parser/parse_param.h
+--- ui-siprouter~/parser/parse_param.h	2015-02-27 09:41:52.391694117 +0100
++++ ui-siprouter/parser/parse_param.h	2015-02-27 11:27:59.447638640 +0100
+@@ -52,6 +52,7 @@
+ 	P_DSTIP,     /*!< URI: dstip parameter */
+ 	P_DSTPORT,   /*!< URi: dstport parameter */
+ 	P_INSTANCE,  /*!< Contact: sip.instance parameter */
++	P_UNIQ,      /*!< Contact: uniq parameter */
+ 	P_REG_ID,    /*!< Contact: reg-id parameter */
+ 	P_FTAG,      /*!< URI: ftag parameter */
+ 	P_CALL_ID,   /*!< Dialog event package: call-id */
+@@ -96,6 +97,7 @@
+ 	struct param* methods;  /*!< methods parameter */
+ 	struct param* received; /*!< received parameter */
+ 	struct param* instance; /*!< sip.instance parameter */
++	struct param* uniq;     /*! uniq parameter */
+ 	struct param* reg_id;   /*!< reg-id parameter */
+ 	struct param* ob;       /*!< ob parameter */
+ };
+ 

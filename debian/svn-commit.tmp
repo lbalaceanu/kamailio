@@ -1,0 +1,5 @@
+Added possibility to add a sip uri as a parameter to siptrace which is used as a duplicate uri and overrides the duplicate_uri modparam.
+--This line, and those below, will be ignored--
+
+A    patches/siptrace_dup.dpatch
+M    patches/00list

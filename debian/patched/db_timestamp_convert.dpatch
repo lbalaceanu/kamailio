@@ -1,0 +1,2 @@
+patching file lib/srdb1/db_ut.c
+patching file modules/db_mysql/km_res.c

@@ -1,0 +1,1241 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## kex_mod_stats_debugging.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/mem/f_malloc.c ui-siprouter/mem/f_malloc.c
+--- ui-siprouter~/mem/f_malloc.c	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/mem/f_malloc.c	2015-11-03 13:30:50.000000000 +0200
+@@ -231,8 +231,8 @@
+ static inline
+ #ifdef DBG_F_MALLOC 
+ void fm_split_frag(struct fm_block* qm, struct fm_frag* frag,
+-					unsigned long size,
+-					const char* file, const char* func, unsigned int line)
++					unsigned long size, const char* file, const char* func,
++                        unsigned int line, const char* mname)
+ #else
+ void fm_split_frag(struct fm_block* qm, struct fm_frag* frag,
+ 					unsigned long size)
+@@ -262,9 +262,10 @@
+ #ifdef DBG_F_MALLOC
+ 		/* frag created by malloc, mark it*/
+ 		n->file=file;
+-		n->func="frag. from fm_malloc";
++		n->func="frag. from fm_split_frag";
+ 		n->line=line;
+ 		n->check=ST_CHECK_PATTERN;
++		n->mname=mname;
+ #endif
+ 		/* reinsert n in free list*/
+ 		fm_insert_free(qm, n);
+@@ -347,8 +348,8 @@
+  * \return address of allocated memory
+  */
+ #ifdef DBG_F_MALLOC
+-void* fm_malloc(struct fm_block* qm, unsigned long size,
+-					const char* file, const char* func, unsigned int line)
++void* fm_malloc(struct fm_block* qm, unsigned long size, const char* file,
++                    const char* func, unsigned int line, const char* mname)
+ #else
+ void* fm_malloc(struct fm_block* qm, unsigned long size)
+ #endif
+@@ -429,11 +430,12 @@
+ 	/*see if we'll use full frag, or we'll split it in 2*/
+ 	
+ #ifdef DBG_F_MALLOC
+-	fm_split_frag(qm, frag, size, file, func, line);
++	fm_split_frag(qm, frag, size, file, func, line, mname);
+ 
+ 	frag->file=file;
+ 	frag->func=func;
+ 	frag->line=line;
++	frag->mname=mname;
+ 	frag->check=ST_CHECK_PATTERN;
+ 	MDBG("fm_malloc(%p, %lu) returns address %p \n", qm, size,
+ 		(char*)frag+sizeof(struct fm_frag));
+@@ -506,8 +508,8 @@
+  * \param p freed memory
+  */
+ #ifdef DBG_F_MALLOC
+-void fm_free(struct fm_block* qm, void* p, const char* file, const char* func, 
+-				unsigned int line)
++void fm_free(struct fm_block* qm, void* p, const char* file, const char* func,
++                unsigned int line, const char* mname)
+ #else
+ void fm_free(struct fm_block* qm, void* p)
+ #endif
+@@ -555,6 +557,7 @@
+ 	f->file=file;
+ 	f->func=func;
+ 	f->line=line;
++	f->mname=mname;
+ #endif
+ #ifdef MEM_JOIN_FREE
+ 	if(unlikely(cfg_get(core, core_cfg, mem_join)!=0))
+@@ -575,7 +578,8 @@
+  */
+ #ifdef DBG_F_MALLOC
+ void* fm_realloc(struct fm_block* qm, void* p, unsigned long size,
+-					const char* file, const char* func, unsigned int line)
++                    const char* file, const char* func, unsigned int line,
++                        const char *mname)
+ #else
+ void* fm_realloc(struct fm_block* qm, void* p, unsigned long size)
+ #endif
+@@ -600,7 +604,7 @@
+ 	if (size==0) {
+ 		if (p)
+ #ifdef DBG_F_MALLOC
+-			fm_free(qm, p, file, func, line);
++			fm_free(qm, p, file, func, line, mname);
+ #else
+ 			fm_free(qm, p);
+ #endif
+@@ -608,7 +612,7 @@
+ 	}
+ 	if (p==0)
+ #ifdef DBG_F_MALLOC
+-		return fm_malloc(qm, size, file, func, line);
++		return fm_malloc(qm, size, file, func, line, mname);
+ #else
+ 		return fm_malloc(qm, size);
+ #endif
+@@ -623,7 +627,7 @@
+ 		/* shrink */
+ #ifdef DBG_F_MALLOC
+ 		MDBG("fm_realloc: shrinking from %lu to %lu\n", f->size, size);
+-		fm_split_frag(qm, f, size, file, "frag. from fm_realloc", line);
++		fm_split_frag(qm, f, size, file, "frag. from fm_realloc", line, mname);
+ #else
+ 		fm_split_frag(qm, f, size);
+ #endif
+@@ -677,7 +681,7 @@
+ 			if (f->size > size){
+ 		#ifdef DBG_F_MALLOC
+ 				fm_split_frag(qm, f, size, file, "fragm. from fm_realloc",
+-						line);
++						line, mname);
+ 		#else
+ 				fm_split_frag(qm, f, size);
+ 		#endif
+@@ -693,7 +697,7 @@
+ 		}else{
+ 			/* could not join => realloc */
+ 	#ifdef DBG_F_MALLOC
+-			ptr=fm_malloc(qm, size, file, func, line);
++			ptr=fm_malloc(qm, size, file, func, line, mname);
+ 	#else
+ 			ptr=fm_malloc(qm, size);
+ 	#endif
+@@ -702,7 +706,7 @@
+ 				memcpy(ptr, p, orig_size);
+ 			}
+ 	#ifdef DBG_F_MALLOC
+-			fm_free(qm, p, file, func, line);
++			fm_free(qm, p, file, func, line, mname);
+ 	#else
+ 			fm_free(qm, p);
+ 	#endif
+@@ -886,18 +890,6 @@
+ 
+ 
+ #ifdef DBG_F_MALLOC
+-
+-typedef struct _mem_counter{
+-	const char *file;
+-	const char *func;
+-	unsigned long line;
+-	
+-	unsigned long size;
+-	int count;
+-	
+-	struct _mem_counter *next;
+-} mem_counter;
+-
+ static mem_counter* get_mem_counter(mem_counter **root,struct fm_frag* f)
+ {
+ 	mem_counter *x;
+@@ -911,6 +903,7 @@
+ 	x->file = f->file;
+ 	x->func = f->func;
+ 	x->line = f->line;
++	x->mname = f->mname;
+ 	x->count = 0;
+ 	x->size = 0;
+ 	x->next = *root;
+@@ -968,6 +961,53 @@
+ 	}
+ 	LOG_(DEFAULT_FACILITY, memlog, "fm_status: ",
+ 			"-----------------------------\n");
++
++}
++
++
++/**
++ *
++ */
++void fm_mod_get_stats(struct fm_block* qm, mem_counter **fm_root)
++{
++	struct fm_frag* f;
++	int i;
++	mem_counter *x;
++
++
++	if (!qm) return ;
++	if (!fm_root) return ;
++
++	LM_NOTICE("get statistics for fm memory algorithm\n");
++
++	/* update fragment detail list */
++	for (f=qm->first_frag, i=0; (char*)f<(char*)qm->last_frag;
++			f=FRAG_NEXT(f), i++){
++		if (f->u.nxt_free==0){
++			x = get_mem_counter(fm_root,f);
++			x->count++;
++			x->size+=f->size;
++		}
++	}
++
++    return ;
++}
++
++void fm_mod_free_stats(mem_counter *root)
++{
++	mem_counter *new, *old;
++	new = root;
++	old = root;
++
++	if (!root) return ;
++
++	LM_NOTICE("free statistics for fm memory algorithm\n");
++
++	while(new){
++		old = new;
++		new = new->next;
++		free(old);
++	}
+ }
+ #endif /* DBG_F_MALLOC */
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/mem/f_malloc.h ui-siprouter/mem/f_malloc.h
+--- ui-siprouter~/mem/f_malloc.h	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/mem/f_malloc.h	2015-11-03 13:30:50.000000000 +0200
+@@ -99,6 +99,7 @@
+ #ifdef DBG_F_MALLOC
+ 	const char* file;
+ 	const char* func;
++	const char* mname;
+ 	unsigned long line;
+ 	unsigned long check;
+ #endif
+@@ -129,6 +130,18 @@
+ 	struct fm_frag_lnk free_hash[F_HASH_SIZE];
+ };
+ 
++typedef struct _mem_counter {
++    const char *file;
++    const char *func;
++    const char *mname;
++    unsigned long line;
++
++    unsigned long size;
++    int count;
++
++    struct _mem_counter *next;
++} mem_counter;
++
+ 
+ /**
+  * \brief Initialize memory manager malloc
+@@ -146,8 +159,8 @@
+  * \return address of allocated memory
+  */
+ #ifdef DBG_F_MALLOC
+-void* fm_malloc(struct fm_block* qm, unsigned long size,
+-					const char* file, const char* func, unsigned int line);
++void* fm_malloc(struct fm_block* qm, unsigned long size, const char* file,
++                    const char* func, unsigned int line, const char* mname);
+ #else
+ void* fm_malloc(struct fm_block* qm, unsigned long size);
+ #endif
+@@ -161,10 +174,10 @@
+  * \param p freed memory
+  */
+ #ifdef DBG_F_MALLOC
+-void  fm_free(struct fm_block* qm, void* p, const char* file, const char* func, 
+-				unsigned int line);
++void fm_free(struct fm_block* qm, void* p, const char* file, const char* func,
++				unsigned int line, const char* mname);
+ #else
+-void  fm_free(struct fm_block* qm, void* p);
++void fm_free(struct fm_block* qm, void* p);
+ #endif
+ 
+ 
+@@ -178,10 +191,11 @@
+  * \return reallocated memory block
+  */
+ #ifdef DBG_F_MALLOC
+-void*  fm_realloc(struct fm_block* qm, void* p, unsigned long size, 
+-					const char* file, const char* func, unsigned int line);
++void* fm_realloc(struct fm_block* qm, void* p, unsigned long size,
++					const char* file, const char* func, unsigned int line,
++                        const char *mname);
+ #else
+-void*  fm_realloc(struct fm_block* qm, void* p, unsigned long size);
++void* fm_realloc(struct fm_block* qm, void* p, unsigned long size);
+ #endif
+ 
+ 
+@@ -218,6 +232,8 @@
+  */
+ #ifdef DBG_F_MALLOC
+ void fm_sums(struct fm_block* qm);
++void fm_mod_get_stats(struct fm_block* qm, mem_counter **root);
++void fm_mod_free_stats(mem_counter *root);
+ #else
+ #define fm_sums(qm) do{}while(0)
+ #endif /* DBG_F_MALLOC */
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/mem/mem.h ui-siprouter/mem/mem.h
+--- ui-siprouter~/mem/mem.h	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/mem/mem.h	2015-11-03 13:30:50.000000000 +0200
+@@ -80,18 +80,18 @@
+ #	include "src_loc.h" /* src location macros: _SRC_* */
+ #		ifdef F_MALLOC
+ #			define pkg_malloc(s) fm_malloc(mem_block, (s), _SRC_LOC_, \
+-				_SRC_FUNCTION_, _SRC_LINE_)
++				_SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ #			define pkg_free(p)   fm_free(mem_block, (p), _SRC_LOC_,  \
+-				_SRC_FUNCTION_, _SRC_LINE_)
++				_SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ #			define pkg_realloc(p, s) fm_realloc(mem_block, (p), (s), \
+-					_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_)
++					_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ #		else
+ #			define pkg_malloc(s) qm_malloc(mem_block, (s),_SRC_LOC_, \
+-				_SRC_FUNCTION_, _SRC_LINE_)
++				_SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ #			define pkg_realloc(p, s) qm_realloc(mem_block, (p), (s), \
+-				_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_)
++				_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ #			define pkg_free(p)   qm_free(mem_block, (p), _SRC_LOC_,  \
+-				_SRC_FUNCTION_, _SRC_LINE_)
++				_SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ #		endif
+ #	else
+ #		ifdef F_MALLOC
+@@ -113,16 +113,22 @@
+ #		define pkg_info(mi)    fm_info(mem_block, mi)
+ #		define pkg_available() fm_available(mem_block)
+ #		define pkg_sums()      fm_sums(mem_block)
++#		define pkg_mod_get_stats(x)     fm_mod_get_stats(mem_block, x)
++#		define pkg_mod_free_stats(x)    fm_mod_free_stats(x)
+ #	elif defined DL_MALLOC
+ #		define pkg_status()  0
+ #		define pkg_info(mi)  0
+ #		define pkg_available()  0
+ #		define pkg_sums()  0
++#   	define pkg_mod_get_stats(x)         do{}while(0)
++#   	define pkg_mod_free_stats(x)        do{}while(0)
+ #	else
+ #		define pkg_status()    qm_status(mem_block)
+ #		define pkg_info(mi)    qm_info(mem_block, mi)
+ #		define pkg_available() qm_available(mem_block)
+ #		define pkg_sums()      qm_sums(mem_block)
++#		define pkg_mod_get_stats(x)     qm_mod_get_stats(mem_block, x)
++#		define pkg_mod_free_stats(x)    qm_mod_free_stats(x)
+ #	endif
+ #elif defined(SHM_MEM) && defined(USE_SHM_MEM)
+ #	include "shm_mem.h"
+@@ -131,6 +137,8 @@
+ #	define pkg_free(p)		shm_free((p))
+ #	define pkg_status()		shm_status()
+ #	define pkg_sums()		shm_sums()
++#   define pkg_mod_get_stats(x)     shm_mod_get_stats(x)
++#   define pkg_mod_free_stats(x)    shm_mod_free_stats(x)
+ #else
+ #	include <stdlib.h>
+ #	include "memdbg.h"
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/mem/q_malloc.c ui-siprouter/mem/q_malloc.c
+--- ui-siprouter~/mem/q_malloc.c	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/mem/q_malloc.c	2015-11-03 13:33:32.707786748 +0200
+@@ -306,7 +306,8 @@
+ static inline
+ #ifdef DBG_QM_MALLOC
+ int split_frag(struct qm_block* qm, struct qm_frag* f, unsigned long new_size,
+-				const char* file, const char* func, unsigned int line)
++				const char* file, const char* func, unsigned int line,
++                    const char *mname)
+ #else
+ int split_frag(struct qm_block* qm, struct qm_frag* f, unsigned long new_size)
+ #endif
+@@ -338,6 +339,7 @@
+ 		n->file=file;
+ 		n->func=func;
+ 		n->line=line;
++		n->mname=mname;
+ 		n->check=ST_CHECK_PATTERN;
+ #endif
+ 		/* reinsert n in free list*/
+@@ -353,7 +355,8 @@
+ 
+ #ifdef DBG_QM_MALLOC
+ void* qm_malloc(struct qm_block* qm, unsigned long size,
+-					const char* file, const char* func, unsigned int line)
++					const char* file, const char* func, unsigned int line,
++                        const char *mname)
+ #else
+ void* qm_malloc(struct qm_block* qm, unsigned long size)
+ #endif
+@@ -391,7 +394,7 @@
+ 		qm->free_hash[hash].no--;
+ 		/* we ignore split return */
+ #ifdef DBG_QM_MALLOC
+-		split_frag(qm, f, size, file, "fragm. from qm_malloc", line);
++		split_frag(qm, f, size, file, "fragm. from qm_malloc", line, mname);
+ #else
+ 		split_frag(qm, f, size);
+ #endif
+@@ -406,6 +409,7 @@
+ #ifdef DBG_QM_MALLOC
+ 		f->file=file;
+ 		f->func=func;
++		f->mname=mname;
+ 		f->line=line;
+ 		f->check=ST_CHECK_PATTERN;
+ 		/*  FRAG_END(f)->check1=END_CHECK_PATTERN1;
+@@ -422,8 +426,8 @@
+ 
+ 
+ #ifdef DBG_QM_MALLOC
+-void qm_free(struct qm_block* qm, void* p, const char* file, const char* func, 
+-				unsigned int line)
++void qm_free(struct qm_block* qm, void* p, const char* file, const char* func,
++				unsigned int line, const char *mname)
+ #else
+ void qm_free(struct qm_block* qm, void* p)
+ #endif
+@@ -530,6 +534,7 @@
+ #ifdef DBG_QM_MALLOC
+ 	f->file=file;
+ 	f->func=func;
++	f->mname=mname;
+ 	f->line=line;
+ #endif
+ 	qm_insert_free(qm, f);
+@@ -539,7 +544,8 @@
+ 
+ #ifdef DBG_QM_MALLOC
+ void* qm_realloc(struct qm_block* qm, void* p, unsigned long size,
+-					const char* file, const char* func, unsigned int line)
++					const char* file, const char* func, unsigned int line,
++                        const char *mname)
+ #else
+ void* qm_realloc(struct qm_block* qm, void* p, unsigned long size)
+ #endif
+@@ -564,7 +570,7 @@
+ 	if (size==0) {
+ 		if (p)
+ #ifdef DBG_QM_MALLOC
+-			qm_free(qm, p, file, func, line);
++			qm_free(qm, p, file, func, line, mname);
+ #else
+ 			qm_free(qm, p);
+ #endif
+@@ -572,7 +578,7 @@
+ 	}
+ 	if (p==0)
+ #ifdef DBG_QM_MALLOC
+-		return qm_malloc(qm, size, file, func, line);
++		return qm_malloc(qm, size, file, func, line, mname);
+ #else
+ 		return qm_malloc(qm, size);
+ #endif
+@@ -594,7 +600,7 @@
+ 		/* shrink */
+ #ifdef DBG_QM_MALLOC
+ 		MDBG("qm_realloc: shrinking from %lu to %lu\n", f->size, size);
+-		if(split_frag(qm, f, size, file, "fragm. from qm_realloc", line)!=0){
++		if(split_frag(qm, f, size, file, "fragm. from qm_realloc", line, mname)!=0){
+ 		MDBG("qm_realloc : shrinked successful\n");
+ #else
+ 		if(split_frag(qm, f, size)!=0){
+@@ -632,7 +638,7 @@
+ 				if (f->size > size ){
+ 	#ifdef DBG_QM_MALLOC
+ 					split_frag(qm, f, size, file, "fragm. from qm_realloc",
+-										line);
++										line, mname);
+ 	#else
+ 					split_frag(qm, f, size);
+ 	#endif
+@@ -645,8 +651,8 @@
+ #endif
+ 			}else{
+ 				/* could not join => realloc */
+-	#ifdef DBG_QM_MALLOC
+-				ptr=qm_malloc(qm, size, file, func, line);
++    #ifdef DBG_QM_MALLOC
++				ptr=qm_malloc(qm, size, file, func, line, mname);
+ 	#else
+ 				ptr=qm_malloc(qm, size);
+ 	#endif
+@@ -654,8 +660,8 @@
+ 					/* copy, need by libssl */
+ 					memcpy(ptr, p, orig_size);
+ 				}
+-	#ifdef DBG_QM_MALLOC
+-				qm_free(qm, p, file, func, line);
++    #ifdef DBG_QM_MALLOC
++				qm_free(qm, p, file, func, line, mname);
+ 	#else
+ 				qm_free(qm, p);
+ 	#endif
+@@ -844,17 +850,6 @@
+ 
+ #ifdef DBG_QM_MALLOC
+ 
+-typedef struct _mem_counter{
+-	const char *file;
+-	const char *func;
+-	unsigned long line;
+-	
+-	unsigned long size;
+-	int count;
+-	
+-	struct _mem_counter *next;
+-} mem_counter;
+-
+ static mem_counter* get_mem_counter(mem_counter **root, struct qm_frag* f)
+ {
+ 	mem_counter *x;
+@@ -866,6 +861,7 @@
+ 	x = malloc(sizeof(mem_counter));
+ 	x->file = f->file;
+ 	x->func = f->func;
++	x->mname= f->mname;
+ 	x->line = f->line;
+ 	x->count = 0;
+ 	x->size = 0;
+@@ -912,6 +908,50 @@
+ 	LOG_(DEFAULT_FACILITY, memlog, "qm_sums: ",
+ 			"-----------------------------\n");
+ }
++
++/**
++ *
++ */
++void qm_mod_get_stats(struct qm_block* qm, mem_counter **qm_root)
++{
++	struct qm_frag* f;
++	int i;
++	mem_counter *x;
++
++	if (!qm) return ;
++	if (!qm_root) return ;
++
++	LM_NOTICE("get statistics for qm memmory algorithm\n");
++
++	/* update fragment detail list */
++	for (f=qm->first_frag, i=0; (char*)f<(char*)qm->last_frag_end;
++			f=FRAG_NEXT(f), i++){
++		if (! f->u.is_free){
++		x = get_mem_counter(qm_root,f);
++		x->count++;
++		x->size+=f->size;
++		}
++	}
++
++	return ;
++}
++
++void qm_mod_free_stats(mem_counter *root)
++{
++	mem_counter *new, *old;
++	new = root;
++	old = root;
++
++	if (!root) return ;
++
++	LM_NOTICE("free statistics for qm memmory algorithm\n");
++
++	while(new) {
++		old = new;
++		new = new->next;
++		free(old);
++	}
++}
+ #endif /* DBG_QM_MALLOC */
+ 
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/mem/q_malloc.h ui-siprouter/mem/q_malloc.h
+--- ui-siprouter~/mem/q_malloc.h	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/mem/q_malloc.h	2015-11-03 13:30:50.000000000 +0200
+@@ -81,6 +81,7 @@
+ #ifdef DBG_QM_MALLOC
+ 	const char* file;
+ 	const char* func;
++	const char* mname;
+ 	unsigned long line;
+ 	unsigned long check;
+ #endif
+@@ -124,26 +125,38 @@
+ 	/*struct qm_frag_end free_lst_end;*/
+ };
+ 
++typedef struct _mem_counter{
++    const char *file;
++    const char *func;
++    const char *mname;
++    unsigned long line;
++    
++    unsigned long size;
++    int count;
++    
++    struct _mem_counter *next;
++} mem_counter;
+ 
+ 
+ struct qm_block* qm_malloc_init(char* address, unsigned long size);
+ 
+ #ifdef DBG_QM_MALLOC
+ void* qm_malloc(struct qm_block*, unsigned long size, const char* file,
+-					const char* func, unsigned int line);
++					const char* func, unsigned int line, const char* mname);
+ #else
+ void* qm_malloc(struct qm_block*, unsigned long size);
+ #endif
+ 
+ #ifdef DBG_QM_MALLOC
+-void  qm_free(struct qm_block*, void* p, const char* file, const char* func, 
+-				unsigned int line);
++void  qm_free(struct qm_block*, void* p, const char* file, const char* func,
++				unsigned int line, const char* mname);
+ #else
+ void  qm_free(struct qm_block*, void* p);
+ #endif
+ #ifdef DBG_QM_MALLOC
+ void* qm_realloc(struct qm_block*, void* p, unsigned long size,
+-					const char* file, const char* func, unsigned int line);
++					const char* file, const char* func, unsigned int line,
++                        const char *mname);
+ #else
+ void* qm_realloc(struct qm_block*, void* p, unsigned long size);
+ #endif
+@@ -156,6 +169,8 @@
+ 
+ #ifdef DBG_QM_MALLOC
+ void qm_sums(struct qm_block* qm);
++void qm_mod_get_stats(struct qm_block* qm, mem_counter **qm_root);
++void qm_mod_free_stats(mem_counter* root);
+ #else
+ #define qm_sums(v) do{}while(0)
+ #endif /*DBQ_QM_MALLOC */
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/mem/shm_mem.c ui-siprouter/mem/shm_mem.c
+--- ui-siprouter~/mem/shm_mem.c	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/mem/shm_mem.c	2015-11-03 13:30:50.000000000 +0200
+@@ -102,7 +102,7 @@
+ 
+ #ifdef DBG_QM_MALLOC
+ void* _shm_resize( void* p, unsigned int s, const char* file, const char* func,
+-							int line)
++							int line, const char *mname)
+ #else
+ void* _shm_resize( void* p , unsigned int s)
+ #endif
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/mem/shm_mem.h ui-siprouter/mem/shm_mem.h
+--- ui-siprouter~/mem/shm_mem.h	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/mem/shm_mem.h	2015-11-03 13:30:50.000000000 +0200
+@@ -141,6 +141,8 @@
+ #	define shm_malloc_destroy(b) do{}while(0)
+ #	define shm_available() fm_available(shm_block)
+ #	define shm_malloc_on_fork() do{}while(0)
++#   define shm_mod_get_stats(x)         fm_mod_get_stats(shm_block, x)
++#   define shm_mod_free_stats(x)        fm_mod_free_stats(x)
+ #elif defined DL_MALLOC
+ #	include "dl_malloc.h"
+ 	extern mspace shm_block;
+@@ -153,6 +155,8 @@
+ #	define  shm_malloc_init(buf, len) create_mspace_with_base(buf, len, 0)
+ #	define shm_malloc_destroy(b) do{}while(0)
+ #	define shm_malloc_on_fork() do{}while(0)
++#   define shm_mod_get_stats(x)         do{}while(0)
++#   define shm_mod_free_stats(x)        do{}while(0)
+ #else
+ #	include "q_malloc.h"
+ 	extern struct qm_block* shm_block;
+@@ -166,6 +170,8 @@
+ #	define shm_malloc_destroy(b) do{}while(0)
+ #	define shm_available() qm_available(shm_block)
+ #	define shm_malloc_on_fork() do{}while(0)
++#   define shm_mod_get_stats(x)         qm_mod_get_stats(shm_block, x)
++#   define shm_mod_free_stats(x)        qm_mod_free_stats(x)
+ #endif
+ 
+ #ifndef SHM_SAFE_MALLOC
+@@ -196,41 +202,40 @@
+ #include "src_loc.h"
+ 
+ #define shm_malloc_unsafe(_size ) \
+-	MY_MALLOC(shm_block, (_size), _SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_ )
+-
++	MY_MALLOC(shm_block, (_size), _SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ 
+ inline static void* _shm_malloc(unsigned int size, 
+-	const char *file, const char *function, int line )
++	const char *file, const char *function, int line, const char *mname)
+ {
+ 	void *p;
+ 	
+ 	shm_lock();
+-	p=MY_MALLOC(shm_block, size, file, function, line );
++	p=MY_MALLOC(shm_block, size, file, function, line, mname);
+ 	shm_unlock();
+ 	return p; 
+ }
+ 
+ 
+ inline static void* _shm_realloc(void *ptr, unsigned int size, 
+-		const char* file, const char* function, int line )
++		const char* file, const char* function, int line, const char *mname)
+ {
+ 	void *p;
+ 	shm_lock();
+-	p=MY_REALLOC(shm_block, ptr, size, file, function, line);
++	p=MY_REALLOC(shm_block, ptr, size, file, function, line, mname);
+ 	shm_unlock();
+ 	return p;
+ }
+ 
+ #define shm_malloc( _size ) _shm_malloc((_size), \
+-	_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_ )
++	_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_ , _SRC_MODULE_)
+ 
+ #define shm_realloc( _ptr, _size ) _shm_realloc( (_ptr), (_size), \
+-	_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_ )
++	_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ 
+ 
+ 
+ #define shm_free_unsafe( _p  ) \
+-	MY_FREE( shm_block, (_p), _SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_ )
++	MY_FREE( shm_block, (_p), _SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ 
+ #define shm_free(_p) \
+ do { \
+@@ -242,9 +247,9 @@
+ 
+ 
+ void* _shm_resize(void* ptr, unsigned int size, const char* f, const char* fn,
+-					int line);
++					int line, const char *mname);
+ #define shm_resize(_p, _s ) _shm_resize((_p), (_s), \
+-		_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_ )
++		_SRC_LOC_, _SRC_FUNCTION_, _SRC_LINE_, _SRC_MODULE_)
+ /*#define shm_resize(_p, _s ) shm_realloc( (_p), (_s))*/
+ 
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/mem/src_loc.h ui-siprouter/mem/src_loc.h
+--- ui-siprouter~/mem/src_loc.h	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/mem/src_loc.h	2015-11-03 13:30:50.000000000 +0200
+@@ -72,7 +72,7 @@
+ #	ifdef MOD_NAME
+ #		define _SRC_MODULE_ MOD_NAME
+ #	else
+-#		define _SRC_MODULE_ "<core>"
++#		define _SRC_MODULE_ "core"
+ #	endif /* MOD_NAME */
+ #endif /* _SRC_MODULE_ */
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/ctl/binrpc_run.c ui-siprouter/modules/ctl/binrpc_run.c
+--- ui-siprouter~/modules/ctl/binrpc_run.c	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/modules/ctl/binrpc_run.c	2015-11-03 13:30:50.000000000 +0200
+@@ -47,8 +47,18 @@
+    rpc->scan (default: not set) */
+ int autoconvert=0;
+ 
++#if defined(DBG_QM_MALLOC) || defined(DBG_F_MALLOC)
++/**
++ * note that if you get some error(overflow) when "kamcmd mod.stats all all" you might
++ * need to increase these values
++ **/
++int binrpc_max_body_size = 32; /* multiplied by 1024 in mod init */
++int binrpc_struct_max_body_size = 8; /* multiplied by 1024 in mod init */
++#else
+ int binrpc_max_body_size = 4; /* multiplied by 1024 in mod init */
+-int  binrpc_struct_max_body_size = 1; /* multiplied by 1024 in mod init */
++int binrpc_struct_max_body_size = 1; /* multiplied by 1024 in mod init */
++#endif
++
+ #define BINRPC_MAX_BODY	binrpc_max_body_size  /* maximum body for send */
+ #define STRUCT_MAX_BODY	binrpc_struct_max_body_size
+ #define MAX_MSG_CHUNKS	96
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/kex/doc/kex_admin.xml ui-siprouter/modules/kex/doc/kex_admin.xml
+--- ui-siprouter~/modules/kex/doc/kex_admin.xml	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/modules/kex/doc/kex_admin.xml	2015-11-03 13:30:50.000000000 +0200
+@@ -662,6 +662,132 @@
+ 		&sercmd; pkg.stats index 10
+ 		</programlisting>
+     </section>
++	<section id="kex.r.stats.get_statistics">
++		<title>
++		<function moreinfo="none">stats.get_statistics</function>
++		</title>
++		<para>Print the list of available internal statistics.</para>
++		<para>Parameters: <emphasis>statsid</emphasis> - which statistics to
++			be printed. If set to 'all' then all statistics are printed; if
++			set to 'statsgroup:' then all statistics in the group are printed;
++			if set to 'statsname' then the statistics identified by the name
++			is printed.</para>
++		<para>Examples:</para>
++        <programlisting  format="linespecific">
++		&sercmd; stats.get_statistics all
++		&sercmd; stats.get_statistics core:
++		&sercmd; stats.get_statistics unsupported_methods
++		&sercmd; stats.get_statistics shmem: fwd_requests fwd_replies
++		</programlisting>
++    </section>
++	<section id="kex.r.stats.reset_statistics">
++		<title>
++		<function moreinfo="none">stats.reset_statistics</function>
++		</title>
++		<para>Reset internal statistics.</para>
++		<para>
++		Parameters: <emphasis>statsid</emphasis> - same as for get_statistics.
++		</para>
++		<para>Examples:</para>
++        <programlisting  format="linespecific">
++		&sercmd; stats.reset_statistics all
++		&sercmd; stats.reset_statistics core:
++		&sercmd; stats.reset_statistics unsupported_methods
++		&sercmd; stats.reset_statistics shmem: fwd_requests fwd_replies
++		</programlisting>
++    </section>
++	<section id="kex.r.stats.clear_statistics">
++		<title>
++		<function moreinfo="none">stats.clear_statistics</function>
++		</title>
++		<para>Return statistics and reset their value in one command.</para>
++		<para>
++		Parameters: <emphasis>statsid</emphasis> - same as for get_statistics.
++		</para>
++		<para>Examples:</para>
++        <programlisting  format="linespecific">
++		&sercmd; stats.reset_statistics all
++		&sercmd; stats.reset_statistics core:
++		&sercmd; stats.reset_statistics unsupported_methods
++		&sercmd; stats.reset_statistics shmem: fwd_requests fwd_replies
++		</programlisting>
++    </section>
++
++	<section id="kex.r.mod.stats">
++		<title>
++		<function moreinfo="none">mod.stats module_name/all pkg/shm/all</function>
++		</title>
++		<para>
++			Print private(pkg) or shared(shm) memory currently allocated a given module or by all modules.
++		</para>
++		<para>
++			NOTE: Processing is done only when the command is issued and involves iterating
++            throug the list of memory fragments and printing details about them.
++		</para>
++		<para>
++			NOTE: Only the module functions that <emphasis>directly</emphasis> calls shm_alloc or
++            pkg_alloc are taken into consideration.
++		</para>
++		<para>The firt parameter can be:</para>
++		<itemizedlist>
++		<listitem>
++			<para>
++				<emphasis>module_name</emphasis> - print statistics for specific module.
++			</para>
++		</listitem>
++		<listitem>
++			<para>
++				<emphasis>all</emphasis> - print statistics for all modules that uses memory.
++			</para>
++		</listitem>
++		</itemizedlist>
++
++		<para>The second parameter can be:</para>
++		<itemizedlist>
++		<listitem>
++			<para>
++				<emphasis>pkg</emphasis> - print private memory statistics.
++			</para>
++		</listitem>
++		<listitem>
++			<para>
++				<emphasis>shm</emphasis> - print shared memory statistics.
++			</para>
++		</listitem>
++		<listitem>
++			<para>
++				<emphasis>all</emphasis> - print both private and shared memory statistics.
++			</para>
++		</listitem>
++		</itemizedlist>
++		<para>
++		Examples:
++		</para>
++        <programlisting  format="linespecific">
++		&sercmd; mod.stats core all
++		&sercmd; mod.stats userblacklist shm
++		&sercmd; mod.stats kex pkg
++		&sercmd; mod.stats all all
++		</programlisting>
++		<para>
++		Output:
++		</para>
++        <programlisting  format="linespecific">
++Module: kex
++{
++    // this is the pkg zone of the module
++    // function_name(line_where_pkg_malloc_was_called): size_alloc'ed_by_pkg_malloc
++    init_mi_uptime(74): 56
++    Total: 56
++}
++{
++    // this is the shm zone of the module
++    // function_name(line_where_shm_malloc_was_called): size_alloc'ed_by_shm_malloc
++    pkg_proc_stats_init(79): 864
++    Total: 864
++}
++		</programlisting>
++    </section>
+     </section>
+ </chapter>
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/kex/kex_mod.c ui-siprouter/modules/kex/kex_mod.c
+--- ui-siprouter~/modules/kex/kex_mod.c	2015-11-03 13:30:47.000000000 +0200
++++ ui-siprouter/modules/kex/kex_mod.c	2015-11-03 13:30:50.000000000 +0200
+@@ -40,6 +40,7 @@
+ #include "mi_core.h"
+ #include "core_stats.h"
+ #include "pkg_stats.h"
++#include "mod_stats.h"
+ 
+ 
+ MODULE_VERSION
+@@ -145,6 +146,9 @@
+ #endif
+ 	register_pkg_proc_stats();
+ 	pkg_proc_stats_init_rpc();
++
++	mod_stats_init_rpc();
++
+ 	return 0;
+ }
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/kex/mod_stats.c ui-siprouter/modules/kex/mod_stats.c
+--- ui-siprouter~/modules/kex/mod_stats.c	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/kex/mod_stats.c	2015-11-03 13:30:50.000000000 +0200
+@@ -0,0 +1,264 @@
++/*
++ * Copyright (C) 2010 Daniel-Constantin Mierla (asipto.com)
++ *
++ * This file is part of Kamailio, a free SIP server.
++ *
++ * Kamailio is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * Kamailio is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++ *
++ */
++
++/*!
++ * \file
++ * \brief KEX :: Kamailio private memory pool statistics
++ * \ingroup kex
++ */
++
++#include <stdio.h>
++#include <string.h>
++#include <stdlib.h>
++#include <unistd.h>
++
++#include "../../dprint.h"
++#include "../../ut.h"
++#include "../../pt.h"
++#include "../../sr_module.h"
++#include "../../events.h"
++#include "../../mem/mem.h"
++#include "../../mem/shm_mem.h"
++#include "../../mem/shm_mem.h"
++#include "../../rpc.h"
++#include "../../rpc_lookup.h"
++
++#include "mod_stats.h"
++
++
++#define DBG_MOD_PKG_FLAG        0
++#define DBG_MOD_SHM_FLAG        1
++#define DBG_MOD_ALL_FLAG       2
++
++/**
++ *
++ */
++int mod_stats_init(void)
++{
++	return 0;
++}
++
++/**
++ *
++ */
++int mod_stats_destroy(void)
++{
++	return 0;
++}
++
++/**
++ *
++ */
++static const char* rpc_mod_stats_doc[2] = {
++	"Per module memory statistics",
++	0
++};
++
++/* test if the current mod info was already printed */
++static int rpc_mod_is_printed_one(mem_counter *stats, mem_counter *current) {
++    mem_counter *iter = stats;
++
++    while (iter && iter != current) {
++        if (strcmp(iter->mname, current->mname) == 0) {
++            return 1;
++        }
++        iter = iter->next;
++    }
++
++    return 0;
++}
++
++/* print memory info for a specific module in a specific stats list */
++static int rpc_mod_print(rpc_t *rpc, void *ctx, const char *mname,
++    mem_counter *stats)
++{
++    char buff[128];
++    const char *total_str= "Total";
++    void *stats_th = NULL;
++    int total = 0;
++    mem_counter *iter = stats;
++
++    if (stats == NULL) {
++        return -1;
++    }
++
++    if (rpc->add(ctx, "{", &stats_th) < 0) {
++        rpc->fault(ctx, 500, "Internal error creating struct rpc");
++        return -1;
++    }
++
++    while (iter) {
++        if (strcmp(mname, iter->mname) == 0) {
++            sprintf(buff, "%s(%ld)", iter->func, iter->line);
++            if (rpc->struct_add(stats_th, "d", buff, iter->size) < 0) {
++                rpc->fault(ctx, 500, "Internal error adding to struct rpc");
++                return -1;
++            }
++            total += iter->size;
++        }
++        iter = iter->next;
++    }
++
++    if (rpc->struct_add(stats_th, "d", total_str, total) < 0) {
++        rpc->fault(ctx, 500, "Internal error adding total to struct rpc");
++        return -1;
++    }
++
++    return total;
++}
++
++/* print memory info for a specific module */
++static int rpc_mod_print_one(rpc_t *rpc, void *ctx, const char *mname,
++    mem_counter *pkg_stats, mem_counter *shm_stats, int flag)
++{
++    char mod_name[128];
++    mod_name[0] = '\0';
++    strcat(mod_name, "Module: ");
++    strcat(mod_name, mname);
++
++    if (rpc->add(ctx, "s", mod_name) < 0) {
++        rpc->fault(ctx, 500, "Internal error adding module name to ctx");
++        return -1;
++    }
++
++    switch (flag){
++        case DBG_MOD_PKG_FLAG:
++            rpc_mod_print(rpc, ctx, mname, pkg_stats);
++            break;
++        case DBG_MOD_SHM_FLAG:
++            rpc_mod_print(rpc, ctx, mname, shm_stats);
++            break;
++        case DBG_MOD_ALL_FLAG:
++            rpc_mod_print(rpc, ctx, mname, pkg_stats);
++            rpc_mod_print(rpc, ctx, mname, shm_stats);
++            break;
++        default:
++            rpc_mod_print(rpc, ctx, mname, pkg_stats);
++            rpc_mod_print(rpc, ctx, mname, shm_stats);
++            break;
++    }
++
++    if (rpc->add(ctx, "s", "") < 0) {
++        rpc->fault(ctx, 500, "Internal error adding module name to ctx");
++        return -1;
++    }
++
++    return 0;
++}
++
++/* print memory info for all modules */
++static int rpc_mod_print_all(rpc_t *rpc, void *ctx,
++    mem_counter *pkg_stats, mem_counter *shm_stats, int flag)
++{
++    mem_counter *pkg_iter = pkg_stats;
++    mem_counter *shm_iter = shm_stats;
++
++    /* print unique module info found in pkg_stats */
++    while (pkg_iter) {
++        if (!rpc_mod_is_printed_one(pkg_stats, pkg_iter)) {
++           rpc_mod_print_one(rpc, ctx,
++                pkg_iter->mname, pkg_stats, shm_stats, flag);
++        }
++        pkg_iter = pkg_iter->next;
++    }
++
++    /* print unique module info found in shm_stats and not found in pkg_stats */
++    while (shm_iter) {
++        if (!rpc_mod_is_printed_one(shm_stats, shm_iter) &&
++            !rpc_mod_is_printed_one(pkg_stats, shm_iter)) {
++           rpc_mod_print_one(rpc, ctx,
++                shm_iter->mname, pkg_stats, shm_stats, flag);
++        }
++        shm_iter = shm_iter->next;
++    }
++    return 0;
++}
++
++/**
++ *
++ */
++static void rpc_mod_stats(rpc_t *rpc, void *ctx)
++{
++    int flag = DBG_MOD_ALL_FLAG;
++    str mname = STR_NULL;
++    str mtype = STR_NULL;
++
++    mem_counter *pkg_mod_stats_list = NULL;
++    mem_counter *shm_mod_stats_list = NULL;
++
++	if (rpc->scan(ctx, "*S", &mname) != 1) {
++        rpc->fault(ctx, 500, "Module name or \"all\" needed");
++        return;
++    }
++
++	if (rpc->scan(ctx, "*S", &mtype) != 1) {
++        rpc->fault(ctx, 500, "\"pkg\" or \"shm\" or \"all\" needed");
++        return;
++    }
++
++    if (strcmp(mtype.s, "pkg") == 0) {
++        flag = DBG_MOD_PKG_FLAG;
++    } else if (strcmp(mtype.s, "shm") == 0) {
++        flag = DBG_MOD_SHM_FLAG;
++    } else if (strcmp(mtype.s, "all") == 0) {
++        flag = DBG_MOD_ALL_FLAG;
++    }
++
++#if defined(DBG_QM_MALLOC) || defined(DBG_F_MALLOC)
++    pkg_mod_get_stats(&pkg_mod_stats_list);
++    shm_mod_get_stats(&shm_mod_stats_list);
++#endif
++
++    /* print info about all modules */
++    if (strcmp(mname.s, "all") == 0) {
++        rpc_mod_print_all(rpc, ctx, pkg_mod_stats_list, shm_mod_stats_list, flag);
++
++    /* print info about a particular module */
++    } else {
++        rpc_mod_print_one(rpc, ctx, mname.s, pkg_mod_stats_list, shm_mod_stats_list, flag);
++    }
++
++#if defined(DBG_QM_MALLOC) || defined(DBG_F_MALLOC)
++    pkg_mod_free_stats(pkg_mod_stats_list);
++    shm_mod_free_stats(shm_mod_stats_list);
++#endif
++}
++
++/**
++ *
++ */
++rpc_export_t kex_mod_rpc[] = {
++	{"mod.stats", rpc_mod_stats,  rpc_mod_stats_doc,       RET_ARRAY},
++	{0, 0, 0, 0}
++};
++
++/**
++ *
++ */
++int mod_stats_init_rpc(void)
++{
++	if (rpc_register_array(kex_mod_rpc)!=0)
++	{
++		LM_ERR("failed to register RPC commands\n");
++		return -1;
++	}
++	return 0;
++}
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/kex/mod_stats.h ui-siprouter/modules/kex/mod_stats.h
+--- ui-siprouter~/modules/kex/mod_stats.h	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/kex/mod_stats.h	2015-11-03 13:30:50.000000000 +0200
+@@ -0,0 +1,37 @@
++/*
++ * Copyright (C) 2010 Daniel-Constantin Mierla (asipto.com)
++ *
++ * This file is part of Kamailio, a free SIP server.
++ *
++ * Kamailio is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * Kamailio is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++ *
++ */
++
++/*!
++ * \file
++ * \brief KEX :: Kamailio private memory pool statistics
++ * \ingroup kex
++ */
++
++
++#ifndef _MOD_STATS_H_
++#define _MOD_STATS_H_
++
++int mod_stats_init(void);
++int mod_stats_destroy(void);
++int register_mod_stats(void);
++int mod_stats_init_rpc(void);
++
++#endif /*_MOD_STATS_H_*/

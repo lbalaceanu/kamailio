@@ -1,0 +1,35 @@
+patching file modules/p_usrloc/p_usrloc_mod.c
+patching file modules/p_usrloc/p_usrloc_mod.h
+Hunk #1 succeeded at 88 (offset 4 lines).
+patching file modules/p_usrloc/ucontact.c
+Hunk #1 succeeded at 47 (offset 7 lines).
+Hunk #2 succeeded at 95 with fuzz 1 (offset 18 lines).
+Hunk #3 succeeded at 122 (offset 18 lines).
+Hunk #4 succeeded at 143 (offset 18 lines).
+Hunk #5 succeeded at 202 (offset 18 lines).
+patching file modules/p_usrloc/udomain.c
+Hunk #1 succeeded at 352 (offset 9 lines).
+Hunk #2 succeeded at 372 (offset 9 lines).
+Hunk #3 succeeded at 421 (offset 9 lines).
+Hunk #4 succeeded at 480 (offset 9 lines).
+Hunk #5 succeeded at 517 (offset 9 lines).
+Hunk #6 succeeded at 549 (offset 9 lines).
+patching file modules/p_usrloc/urecord.c
+Hunk #1 succeeded at 311 (offset 7 lines).
+Hunk #2 succeeded at 647 (offset 7 lines).
+patching file modules/registrar/save.c
+Hunk #1 succeeded at 411 (offset 32 lines).
+Hunk #2 succeeded at 588 (offset 32 lines).
+Hunk #3 succeeded at 611 (offset 32 lines).
+Hunk #4 succeeded at 640 (offset 32 lines).
+Hunk #5 succeeded at 761 (offset 32 lines).
+patching file modules/usrloc/usrloc.h
+Hunk #1 succeeded at 90 (offset 1 line).
+Hunk #2 succeeded at 117 (offset 1 line).
+patching file parser/contact/contact.c
+patching file parser/contact/contact.h
+patching file parser/parse_param.c
+Hunk #1 succeeded at 172 (offset 5 lines).
+patching file parser/parse_param.h
+Hunk #1 succeeded at 62 (offset 10 lines).
+Hunk #2 succeeded at 107 (offset 10 lines).

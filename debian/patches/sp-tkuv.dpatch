@@ -1,0 +1,983 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## ../patches/merge/sp-tkuv.patch.dpatch by Henning Westerholt <henning.westerholt@1und1.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Lawful Interception implementation (old, pre-TR 5.0)
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/sp-tkuv/Makefile ui-siprouter/modules/sp-tkuv/Makefile
+--- ui-siprouter~/modules/sp-tkuv/Makefile	1970-01-01 01:00:00.000000000 +0100
++++ ui-siprouter/modules/sp-tkuv/Makefile	2011-10-04 13:06:57.000000000 +0200
+@@ -0,0 +1,13 @@
++# WARNING: do not run this directly, it should be run by the master Makefile
++
++include ../../Makefile.defs
++auto_gen=
++NAME=sp-tkuv.so
++LIBS=
++
++DEFS+=-DOPENSER_MOD_INTERFACE
++
++SERLIBPATH=../../lib
++SER_LIBS+=$(SERLIBPATH)/srdb1/srdb1
++
++include ../../Makefile.modules
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/sp-tkuv/common.c ui-siprouter/modules/sp-tkuv/common.c
+--- ui-siprouter~/modules/sp-tkuv/common.c	1970-01-01 01:00:00.000000000 +0100
++++ ui-siprouter/modules/sp-tkuv/common.c	2011-10-04 13:06:46.000000000 +0200
+@@ -0,0 +1,38 @@
++#include "common.h"
++
++
++
++
++void canonize_number(const str uri, number_t canon_number)
++{
++	char *s = uri.s;
++	int pos = 0;
++	int cpos = 0;
++	int nstart = 0;
++	char * prefix = "sip:";
++
++  canon_number[0] = 0;
++  if (s==NULL) return;
++
++	while (nstart<4) {
++		if (pos >= uri.len) break;
++		if (s[pos]==prefix[nstart]) nstart++;
++		else nstart=0;
++		pos++;
++	}
++	while (pos < uri.len && (s[pos] < '0' || s[pos] > '9')) pos++;
++
++	if (pos + 1 < uri.len && s[pos]=='0' && s[pos+1]=='0') pos+=2;
++  if (pos < uri.len && s[pos]=='0') {
++		pos++;
++		canon_number[0] = '4';
++		canon_number[1] = '9';
++		cpos = 2;
++	}
++
++	while (pos < uri.len && cpos < MAXNUMBERLEN && s[pos] >= '0' && s[pos] <= '9') {
++		canon_number[cpos++] = s[pos++];
++	}
++
++	canon_number[cpos] = 0;
++}
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/sp-tkuv/common.h ui-siprouter/modules/sp-tkuv/common.h
+--- ui-siprouter~/modules/sp-tkuv/common.h	1970-01-01 01:00:00.000000000 +0100
++++ ui-siprouter/modules/sp-tkuv/common.h	2011-10-04 13:06:46.000000000 +0200
+@@ -0,0 +1,27 @@
++#ifndef _COMMON_H_
++#define _COMMON_H_
++
++
++
++
++#include "../../sr_module.h"
++
++
++
++
++#define MAXNUMBERLEN 31
++
++
++
++
++typedef char number_t[MAXNUMBERLEN + 1];
++
++
++
++
++void canonize_number(const str uri, number_t canon_number);
++
++
++
++
++#endif
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/sp-tkuv/db.c ui-siprouter/modules/sp-tkuv/db.c
+--- ui-siprouter~/modules/sp-tkuv/db.c	1970-01-01 01:00:00.000000000 +0100
++++ ui-siprouter/modules/sp-tkuv/db.c	2011-10-04 13:06:46.000000000 +0200
+@@ -0,0 +1,341 @@
++#include "db.h"
++#include "dt.h"
++
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <arpa/inet.h>
++#include <stdio.h>
++#include <unistd.h>
++
++#include "../../lib/srdb1/db.h"
++#include "../../mem/mem.h"
++
++
++
++
++#define MAXLIIDLEN 25
++
++
++
++
++static db1_con_t *dbc;
++static db_func_t dbf;
++
++static int deliver_sockfd = 0;
++static struct sockaddr_in deliver_addr;
++
++static str referenznummer_str = str_init("referenznummer");
++static str kennung_str = str_init("kennung");
++static str comp_name_str = str_init("target_type");
++static str comp_val_str = str_init("ftp");
++
++
++
++struct CC_header_Versiont_t {
++	u_int16_t id;
++	u_int16_t len;
++	u_int16_t value;
++} __attribute__((packed));
++
++struct CC_header_PayloadType_t {
++	u_int16_t id;
++	u_int16_t len;
++	u_int8_t value;
++} __attribute__((packed));
++
++struct CC_header_PayloadTimeStamp_t {
++	u_int16_t id;
++	u_int16_t len;
++	u_int32_t value;
++} __attribute__((packed));
++
++struct CC_header_PayloadDirection_t {
++	u_int16_t id;
++	u_int16_t len;
++	u_int8_t value;
++} __attribute__((packed));
++
++struct CC_header_CorrelationNumber_t {
++	u_int16_t id;
++	u_int16_t len;
++	char value[8];
++} __attribute__((packed));
++
++struct CC_header_LIID_t {
++	u_int16_t id;
++	u_int16_t len;
++	char value[MAXLIIDLEN];
++} __attribute__((packed));
++
++struct CC_header_value_t {
++	struct CC_header_Versiont_t Version;
++	struct CC_header_PayloadType_t PayloadType;
++	struct CC_header_PayloadTimeStamp_t PayloadTimeStamp;
++	struct CC_header_PayloadDirection_t PayloadDirection;
++	struct CC_header_CorrelationNumber_t CorrelationNumber;
++	struct CC_header_LIID_t LIID;  // has to be the last element in struct
++} __attribute__((packed));
++
++struct CC_header_t {
++	u_int16_t id;
++	u_int16_t len;
++	struct CC_header_value_t value;  // has to be the last element in struct
++} __attribute__((packed));
++
++struct CC_payload_t {
++	u_int16_t id;
++	u_int16_t len;
++	char value[];
++} __attribute__((packed));
++
++struct CC_t {
++	struct CC_header_t header;
++	struct CC_payload_t payload;
++} __attribute__((packed));
++
++struct CCIE_t {
++	u_int16_t id;
++	u_int16_t len;
++	struct CC_t value;
++} __attribute__((packed));
++
++
++
++
++void init_CCIE(struct CCIE_t *ccie, const struct sip_msg *msg, int dir, const char *liid)
++{
++	int msglen = msg->len;
++  int liidlen = strlen(liid);
++
++	ccie->id = 0x00fb;
++	ccie->len = sizeof(struct CC_t) + msglen + liidlen - MAXLIIDLEN;  // take only the actual number of characters in liid
++
++	ccie->value.header.id = 0x00fc;
++	ccie->value.header.len = sizeof(struct CC_header_value_t) + liidlen - MAXLIIDLEN;  // take only the actual number of characters in liid
++
++	ccie->value.header.value.Version.id = 0x0082;
++	ccie->value.header.value.Version.len = 2;
++	ccie->value.header.value.Version.value = 0x0002;
++
++	ccie->value.header.value.PayloadType.id = 0x0085;
++	ccie->value.header.value.PayloadType.len = 1;
++	ccie->value.header.value.PayloadType.value = 255;
++
++	ccie->value.header.value.PayloadTimeStamp.id = 0x0086;
++	ccie->value.header.value.PayloadTimeStamp.len = 4;
++	ccie->value.header.value.PayloadTimeStamp.value = time(NULL);
++
++	ccie->value.header.value.PayloadDirection.id = 0x0089;
++	ccie->value.header.value.PayloadDirection.len = 1;
++	ccie->value.header.value.PayloadDirection.value = dir;
++
++	ccie->value.header.value.CorrelationNumber.id = 0x0090;
++	ccie->value.header.value.CorrelationNumber.len = 8;
++	memset(ccie->value.header.value.CorrelationNumber.value, 0, sizeof(ccie->value.header.value.CorrelationNumber.value));
++	ccie->value.header.value.CorrelationNumber.value[0] = 1;
++
++	ccie->value.header.value.LIID.id = 0x00fe;
++	ccie->value.header.value.LIID.len = liidlen;
++	strncpy(ccie->value.header.value.LIID.value, liid, MAXLIIDLEN);  // take only the actual number of characters in liid
++
++	ccie->value.payload.id = 0x00fd;
++	ccie->value.payload.len = msglen;
++}
++
++
++
++
++int init_deliver_sock(char *host, int port)
++{
++	deliver_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
++  if (deliver_sockfd < 0) {
++		LM_CRIT("Can't get socket.\n");
++		return -1;
++	}
++
++  memset(&deliver_addr, 0, sizeof(deliver_addr));
++  deliver_addr.sin_family = AF_INET;
++  deliver_addr.sin_port = htons(port);
++  inet_pton(AF_INET, host, &deliver_addr.sin_addr);
++
++  return 0;
++}
++
++
++
++
++void destroy_deliver_sock(void)
++{
++  	if (deliver_sockfd) {
++		close(deliver_sockfd);
++	}
++}
++
++
++
++
++// builds the envelope for given SIP message and actually sends the packet
++void deliver_refnr(struct sip_msg *msg, int dir, const char *refnr)
++{
++	struct CCIE_t ccie;
++	init_CCIE(&ccie, msg, dir, refnr);  // FIXME: is refnr == liid ???
++
++  int ccielen = sizeof(ccie) + ccie.value.header.value.LIID.len - MAXLIIDLEN;
++  int ccielen_part1 = ccielen - sizeof(ccie.value.payload);
++  int ccielen_part2 = sizeof(ccie.value.payload);
++
++	char header[300];
++	snprintf(header, 300, "Content-Length: %d\r\n\r\nType: VoIP-Binary\r\nRefNr: %s\r\n", ccielen + msg->len, refnr);  // take only the actual number of characters in liid
++	header[299] = 0;
++	int hlen = strlen(header);
++
++	int len = hlen + ccielen + msg->len;  // take only the actual number of characters in liid
++	char *buf = pkg_malloc(len);
++	if (buf == NULL) {
++		LM_ERR("Can't alloc %d bytes.\n", len);
++		return;
++	}
++
++	memcpy(buf, header, hlen);
++	memcpy(&(buf[hlen]), &ccie, ccielen_part1);  // take only the actual number of characters in liid
++	memcpy(&(buf[hlen+ccielen_part1]), &(ccie.value.payload), ccielen_part2); // take the rest of the structure
++	memcpy(&(buf[hlen+ccielen]), msg->buf, msg->len);  // the payload
++
++  if (sendto(deliver_sockfd, buf, len, 0, (struct sockaddr *) &deliver_addr, sizeof(deliver_addr)) != len) {
++		LM_ERR("Can't send udp packet.\n");
++	}
++
++	pkg_free(buf);
++}
++
++
++
++
++void deliver(struct sip_msg *msg, int dir, number_t kennung, const str *table) {
++	db_key_t columns[1];
++	db_key_t keys[1];
++	db_op_t opts[1];
++	db_val_t values[1];
++	db1_res_t *res;
++	int i;
++	
++	columns[0] = &referenznummer_str;
++
++	keys[0] = &kennung_str;
++
++	opts[0] = OP_EQ;
++
++	values[0].type = DB1_STRING;
++	values[0].nul = 0;
++	values[0].val.string_val = kennung;
++
++	if (dbf.use_table(dbc, table)	< 0) {
++		LM_ERR("cannot use table '%.*s'.\n", table->len, table->s);
++		return;
++	}
++
++	if (dbf.query(dbc, keys, opts, values, columns, 1, 1, NULL, &res)	< 0) {
++		LM_ERR("Error while querying.\n");
++		return;
++	}
++
++	// deliver message for each matching database entry using the corresponding 'referenznummer'
++	for(i=0; i<RES_ROW_N(res); i++) {
++		if ((RES_COL_N(res) > 0) &&
++				(RES_ROWS(res)[i].values[0].nul == 0)) {
++			if (RES_ROWS(res)[i].values[0].type == DB1_STRING) {
++				deliver_refnr(msg, dir, RES_ROWS(res)[i].values[0].val.string_val);
++			}
++			else {
++				LM_ERR("invalid result type.\n");
++			}
++		}
++	}
++	
++	dbf.free_result(dbc, res);
++}
++
++
++
++
++int init_db(const str *url)
++{
++	if (db_bind_mod(url, &dbf) < 0) {
++		LM_ERR("Can't bind to database module.\n");
++		return -1;
++	}
++
++	return 0;
++}
++
++
++
++
++int init_db_child(const str *url)
++{
++	dbc = dbf.init(url);
++	if (dbc == NULL) {
++		LM_ERR("Child can't connect to database.\n");
++		return -1;
++	}
++
++	return 0;
++}
++
++
++
++
++void destroy_db(void)
++{
++	if (dbc != NULL) {
++		dbf.close(dbc);
++	}
++}
++
++
++
++
++// rebuild d-tree using database entries
++// returns: <0  on failure
++//          >=0 on success, indicating the number of d-tree entries
++int update_from_db(const str *table)
++{
++	db_key_t columns[1];
++	db_key_t comp_names[1];
++	db_val_t comp_vals[1];
++	db1_res_t *res;
++	int i;
++	int n = 0;
++	
++	columns[0] = &kennung_str;
++	comp_names[0] = &comp_name_str;
++	if (db_str2val(DB1_STR, &comp_vals[0], comp_val_str.s, comp_val_str.len, 0) < 0) {
++		LM_ERR("failed to set required value for database query\n");
++		return -1;
++	}
++	dbf.use_table(dbc, table);
++  // just take every entry in table with 'ftap' target type. this table should contain only valid and currently active UEMs!
++	if (dbf.query(dbc, comp_names, NULL, comp_vals, columns, 1, 1, NULL, &res)	< 0) {
++		LM_ERR("Error while querying.\n");
++		return -1;
++	}
++
++	dt_clear();
++
++	for(i=0; i<RES_ROW_N(res); i++) {
++		if ((RES_COL_N(res) > 0) &&
++				(RES_ROWS(res)[i].values[0].nul == 0)) {
++			if (RES_ROWS(res)[i].values[0].type == DB1_STRING) {
++				dt_insert(RES_ROWS(res)[i].values[0].val.string_val);
++				n++;
++			}
++			else {
++				LM_ERR("invalid result type.\n");
++			}
++		}
++	}
++	
++	dbf.free_result(dbc, res);
++
++  return n;
++}
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/sp-tkuv/db.h ui-siprouter/modules/sp-tkuv/db.h
+--- ui-siprouter~/modules/sp-tkuv/db.h	1970-01-01 01:00:00.000000000 +0100
++++ ui-siprouter/modules/sp-tkuv/db.h	2011-10-04 13:06:46.000000000 +0200
+@@ -0,0 +1,34 @@
++#ifndef _DB_H_
++#define _DB_H_
++
++
++
++
++#include "../../sr_module.h"
++#include "common.h"
++
++
++
++
++int init_db(const str *url);
++int init_db_child(const str *url);
++void destroy_db(void);
++
++// rebuild d-tree from entries in database
++//   table   : tkuev table name in database
++int update_from_db(const str *table);
++
++int init_deliver_sock(char *host, int port);
++void destroy_deliver_sock(void);
++
++// deliver message to SSL handler.
++// there may be more than one UEM for the given kennung...
++//   dir     : 0=downstream, 1=upstream
++//   kennung : the number on which the SIP message matched
++//   table   : tkuev table name in database
++void deliver(struct sip_msg * msg, int dir, number_t kennung, const str *table);
++
++
++
++
++#endif
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/sp-tkuv/dt.c ui-siprouter/modules/sp-tkuv/dt.c
+--- ui-siprouter~/modules/sp-tkuv/dt.c	1970-01-01 01:00:00.000000000 +0100
++++ ui-siprouter/modules/sp-tkuv/dt.c	2011-10-04 13:06:46.000000000 +0200
+@@ -0,0 +1,116 @@
++#include "dt.h"
++#include <assert.h>
++#include "../../mem/shm_mem.h"
++
++
++
++
++struct dt_node_t {
++	struct dt_node_t *child[10];
++	char leaf;
++};
++
++
++
++
++static struct dt_node_t *dt_root = NULL;
++
++
++
++
++int dt_init(void)
++{
++	dt_root = shm_malloc(sizeof(struct dt_node_t));
++	if (dt_root == NULL) {
++		LM_CRIT("cannot allocate memory for d-tree.\n");
++		return -1;
++	}
++
++	memset(dt_root, 0, sizeof(struct dt_node_t));
++
++	return 0;
++}
++
++
++
++
++void dt_delete(struct dt_node_t *node)
++{
++	int i;
++	if (node==NULL) return;
++
++	for (i=0; i<10; i++) {
++		dt_delete(node->child[i]);
++		node->child[i] = NULL;
++	}
++
++	if (node != dt_root) shm_free(node);
++}
++
++
++
++
++void dt_destroy(void)
++{
++	if (dt_root) {
++		dt_delete(dt_root);
++		shm_free(dt_root);
++		dt_root = NULL;
++	}
++}
++
++
++
++
++void dt_clear(void)
++{
++	dt_delete(dt_root);
++}
++
++
++
++
++void dt_insert(const char *number)
++{
++	struct dt_node_t *node = dt_root;
++
++	int i=0;
++	while (number[i]!=0) {
++		unsigned int digit = number[i] - '0';
++		if (digit>9) {
++			LM_ERR("cannot insert non-numerical number");
++			return;
++		}
++		if (node->child[digit] == NULL) {
++			node->child[digit] = shm_malloc(sizeof(struct dt_node_t));
++			assert(node->child[digit] != NULL);
++			memset(node->child[digit], 0, sizeof(struct dt_node_t));
++		}
++		node = node->child[digit];
++
++		i++;
++	}
++
++	node->leaf = 1;
++}
++
++
++
++
++int dt_contains(const char *number)
++{
++	struct dt_node_t *node = dt_root;
++
++	int i=0;
++	while (number[i]!=0) {
++		unsigned int digit = number[i] - '0';
++		if (digit>9) return 0;
++		if (node->child[digit] == NULL) return 0;
++		node = node->child[digit];
++
++		i++;
++	}
++
++	if (node->leaf == 1) return 1;
++	return 0;
++}
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/sp-tkuv/dt.h ui-siprouter/modules/sp-tkuv/dt.h
+--- ui-siprouter~/modules/sp-tkuv/dt.h	1970-01-01 01:00:00.000000000 +0100
++++ ui-siprouter/modules/sp-tkuv/dt.h	2011-10-04 13:06:46.000000000 +0200
+@@ -0,0 +1,21 @@
++#ifndef _DT_H_
++#define _DT_H_
++
++
++
++
++#include "../../sr_module.h"
++
++
++
++
++int dt_init(void);
++void dt_destroy(void);
++void dt_clear(void);
++void dt_insert(const char *number);
++int dt_contains(const char *number);
++
++
++
++
++#endif
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/sp-tkuv/sp-tkuv.c ui-siprouter/modules/sp-tkuv/sp-tkuv.c
+--- ui-siprouter~/modules/sp-tkuv/sp-tkuv.c	1970-01-01 01:00:00.000000000 +0100
++++ ui-siprouter/modules/sp-tkuv/sp-tkuv.c	2011-10-04 13:06:46.000000000 +0200
+@@ -0,0 +1,354 @@
++#include <stdio.h>
++#include <string.h>
++#include <stdlib.h>
++#include <assert.h>
++
++#include "../../sr_module.h"
++#include "../../script_cb.h"
++#include "../../locking.h"
++#include "../../timer.h"
++#include "../../mem/shm_mem.h"
++#include "../../modules/tm/t_hooks.h"
++#include "../../modules/tm/tm_load.h"
++
++#include "common.h"
++#include "dt.h"
++#include "db.h"
++
++MODULE_VERSION
++
++
++
++
++#define DT_UPDATE_INTERVAL (60)
++
++
++
++
++static str db_url   = str_init("mysql://localhost/ser"); // DEFAULT_DB_URL;
++static str db_table = str_init("tkuev7_cur");
++static int ignore_register = 0;
++static char* deliver_host = "localhost";
++static int deliver_port = 7000;
++
++static int mod_init(void);
++static int child_init(int rank);
++static void destroy(void);
++
++
++
++
++static cmd_export_t cmds[]={
++	{0,0,0,0,0,0}
++};
++
++
++
++
++static param_export_t params[] = {
++	{"db_url",          STR_PARAM, &db_url.s },
++	{"db_table",        STR_PARAM, &db_table.s },
++	{"ignore_register", INT_PARAM, &ignore_register },
++	{"deliver_host",    STR_PARAM, &deliver_host },
++	{"deliver_port",    INT_PARAM, &deliver_port },
++	{0, 0, 0 }
++};
++
++
++
++
++struct module_exports exports= {
++	"sp-tkuv",
++	DEFAULT_DLFLAGS, /* dlopen flags */
++	cmds,       /* exported functions */
++	params,     /* exported params */
++	0,          /* exported statistics */
++	0,          /* exported MI functions */
++	0,          /* exported pseudo-variables */
++	0,          /* extra processes */
++	mod_init,   /* initialization module */
++	0,          /* response function */
++	destroy,    /* destroy function */
++	child_init  /* per-child init function */
++};
++
++
++
++
++static gen_lock_t *lock = NULL;
++static unsigned int *last_dt_update = NULL;
++
++struct tm_binds tmb;
++
++
++
++
++static void tkuv_filter(struct sip_msg *original_request, struct sip_msg *deliver_msg)
++{
++	number_t from_number;
++  number_t paid_number;
++	number_t to_number;
++	number_t diversion_number;
++	number_t req_number;
++
++  // could fail, eg if already parsed
++  // don't care about result.
++	parse_headers(original_request, HDR_FROM_F | HDR_TO_F | HDR_DIVERSION_F, 0);
++
++  if (ignore_register) {
++    // ignore register requests and responses
++    if (strncmp("REGISTER", original_request->first_line.u.request.method.s, original_request->first_line.u.request.method.len) == 0) {
++      return;
++		}
++	}
++
++  paid_number[0] = 0;
++  char *paid_start = strstr(original_request->buf, "P-Asserted-Identity:");
++  if (paid_start) {
++    char *paid_end = strstr(paid_start, "\r\n");
++    char *paid_uri = strstr(paid_start, "sip:");
++    if ((paid_end) && (paid_uri) && (paid_uri<paid_end)) {
++      str paid_uri_s = { .s = paid_uri, .len = (paid_end - paid_uri) };
++      canonize_number(paid_uri_s, paid_number);
++    }
++  }
++
++  if (original_request->first_line.type == SIP_REQUEST) canonize_number(original_request->first_line.u.request.uri, req_number);
++  else req_number[0] = 0;
++  
++  if (original_request->from == NULL) from_number[0] = 0;
++  else canonize_number(original_request->from->body, from_number);
++  
++  if (original_request->to == NULL) to_number[0] = 0;
++  else canonize_number(original_request->to->body, to_number);
++  
++  if (original_request->diversion == NULL) diversion_number[0] = 0;
++  else canonize_number(original_request->diversion->body, diversion_number);
++    
++  // critical section start:
++  //   avoids dirty reads when updating d-tree.
++  //   avoids multiple concurrent d-tree updates.
++  lock_get(lock);
++  // d-tree update needed?
++  if ((*last_dt_update) + DT_UPDATE_INTERVAL < get_ticks()) {
++    int n = update_from_db(&db_table);
++    if (n>=0) LM_INFO("d-tree updated (%d entries).\n", n);
++    else LM_ERR("d-tree update failed!\n");
++    (*last_dt_update) = get_ticks();
++  }
++  // check if sip message matches a UEM. deliver it if necessary.
++  if (dt_contains(from_number)) {
++    deliver(deliver_msg, 1, from_number, &db_table);
++  }
++  if (strcmp(paid_number, from_number) != 0) {
++    if (dt_contains(paid_number)) {
++      deliver(deliver_msg, 1, paid_number, &db_table);
++    }
++  }
++  if (dt_contains(to_number)) {
++    deliver(deliver_msg, 0, to_number, &db_table);
++  }
++  if ((strcmp(diversion_number, to_number) != 0) && (strcmp(diversion_number, req_number) != 0)) {
++    if (dt_contains(diversion_number)) {
++      deliver(deliver_msg, 0, diversion_number, &db_table);
++      }
++  }
++  if ((strcmp(req_number, to_number) != 0) && (strcmp(req_number, to_number) != 0) && (strcmp(req_number, diversion_number) != 0)) {
++    if (dt_contains(req_number)) {
++      deliver(deliver_msg, 0, req_number, &db_table);
++    }
++  }
++  // critical section end
++  lock_release(lock);
++}
++
++
++
++
++/*
++static void transaction_filter(struct cell* t, int type, struct tmcb_params* p)
++{
++  struct sip_msg *original_request = NULL;
++  struct sip_msg *deliver_msg = NULL;
++
++  if (type&TMCB_REQUEST_IN) {
++    if (tmb.register_tmcb(0, t, TMCB_RESPONSE_OUT|TMCB_E2EACK_IN, transaction_filter, 0, 0) != 1) {
++      LM_CRIT("cannot register tm callback.\n");
++    }
++
++    original_request = p->req;
++    deliver_msg = p->req;
++  }
++  else if (type&TMCB_E2EACK_IN) {
++    original_request = t->uas.request;
++    deliver_msg = p->req;
++  }
++  else if (type&TMCB_RESPONSE_OUT) {
++    original_request = t->uas.request;
++    deliver_msg = p->rpl;
++  }
++  else {
++    LM_ERR("invalid req type!\n");
++    return;
++  }
++
++  // some sanity checks
++  if (!original_request)  {
++    LM_ERR("no original request!\n");
++    return;
++  }
++  if (!deliver_msg)  {
++    LM_ERR("no message to deliver!\n");
++    return;
++  }
++  if (original_request==FAKED_REPLY) {
++    //LM_ERR("faked request!\n");
++    return;
++  }
++  if (deliver_msg==FAKED_REPLY) {
++    //LM_ERR("faked reply!\n");
++    return;
++  }
++
++  tkuv_filter(original_request, deliver_msg);
++}
++*/
++
++
++
++
++static int pre_script_filter(struct sip_msg *msg, unsigned int flags, void *param)
++{
++  // could fail, eg if already parsed
++  // don't care about result.
++	parse_headers(msg, HDR_CSEQ_F, 0);
++
++  if (ignore_register) {
++    if (msg->first_line.type == SIP_REQUEST) {
++			// ignore register requests
++			if (strncmp("REGISTER", msg->first_line.u.request.method.s, msg->first_line.u.request.method.len) == 0) {
++				return 1;
++			}
++		}
++		else if (msg->first_line.type == SIP_REPLY) {
++			// ignore replies to register requests
++			struct cseq_body cseq_b;
++			if (msg->cseq!=NULL) {
++				char * tmp = msg->cseq->body.s;
++				tmp = parse_cseq(tmp, tmp + msg->cseq->body.len + 2, &cseq_b);
++				if (cseq_b.error==PARSE_ERROR){
++					LM_ERR("bad cseq '%.*s'\n", msg->cseq->body.len, msg->cseq->body.s);
++					return 1;
++				}
++
++				if (strncmp("REGISTER", cseq_b.method.s, cseq_b.method.len) == 0) {
++					return 1;
++				}
++			}
++		}
++	}
++
++  tkuv_filter(msg, msg);
++
++	return 1;
++}
++
++
++
++
++static int init_shmlock(void)
++{
++	lock = lock_alloc();
++	if (lock == NULL) {
++		LM_CRIT("cannot allocate memory for lock.\n");
++		return -1;
++	}
++	if (lock_init(lock) == 0) {
++		LM_CRIT("cannot initialize lock.\n");
++		return -1;
++	}
++
++	return 0;
++}
++
++
++
++
++static void destroy_shmlock(void)
++{
++	if (lock) {
++		lock_destroy(lock);
++		lock_dealloc((void *)lock);
++		lock = NULL;
++	}
++}
++
++
++
++
++static int mod_init(void)
++{
++	LM_INFO("initializing");
++	db_url.len = strlen(db_url.s);
++	db_table.len = strlen(db_table.s);
++
++	/* load the TM API */
++	if (load_tm_api(&tmb)!=0) {
++		LM_ERR("Cannot load TM API.\n");
++		return -1;
++	}
++
++	last_dt_update = shm_malloc(sizeof(unsigned int));
++	if (last_dt_update == NULL) {
++		LM_CRIT("cannot allocate shared memory.\n");
++		return -1;
++	}
++
++	if (dt_init() != 0) return -1;
++	if (init_shmlock() != 0) return -1;
++	if (init_db(&db_url) != 0) return -1;
++  if (init_deliver_sock(deliver_host, deliver_port) != 0) return -1;
++	//update_from_db(db_table);
++
++	if (register_script_cb(pre_script_filter, REQUEST_CB|PRE_SCRIPT_CB, 0) != 0) {
++		LM_CRIT("cannot register reply script callback.\n");
++		return -1;
++	}
++	if (register_script_cb(pre_script_filter, ONREPLY_CB|PRE_SCRIPT_CB, 0) != 0) {
++		LM_CRIT("cannot register request script callback.\n");
++		return -1;
++	}
++
++	//if (tmb.register_tmcb(0, 0, TMCB_REQUEST_IN, transaction_filter, 0) != 1 ) {
++	//	LM_CRIT("cannot register tm callback (req).\n");
++	//	return -1;
++	//}
++
++	LM_INFO("initialized.");
++
++	return 0;
++}
++
++
++
++
++static int child_init (int rank)
++{
++	if (init_db_child(&db_url) != 0) return -1;
++
++	return 0;
++}
++
++
++
++
++static void destroy(void)
++{
++	destroy_deliver_sock();
++	destroy_db();
++	destroy_shmlock();
++	dt_destroy();
++	if (last_dt_update) {
++		shm_free(last_dt_update);
++	}
++}

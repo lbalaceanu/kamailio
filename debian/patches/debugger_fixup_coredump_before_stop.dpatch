@@ -1,0 +1,120 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## debugger_fixup_coredump_before_stop.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_api.c ui-siprouter/modules/debugger/debugger_api.c
+--- ui-siprouter~/modules/debugger/debugger_api.c	2016-01-04 13:35:09.000000000 +0200
++++ ui-siprouter/modules/debugger/debugger_api.c	2016-01-04 13:36:41.687413141 +0200
+@@ -1092,6 +1092,7 @@
+ 		return -1;
+ 	}
+ 	memset(_dbg_mod_table, 0, _dbg_mod_table_size*sizeof(dbg_mod_slot_t));
++	LM_DBG("Created _dbg_mod_table, size %d\n", _dbg_mod_table_size);
+ 
+ 	for(i=0; i<_dbg_mod_table_size; i++)
+ 	{
+@@ -1308,6 +1309,10 @@
+ 	if(_dbg_mod_table==NULL)
+ 		return -1;
+ 
++	if (!dbg_cfg) {
++		return -1;
++	}
++
+ 	if(cfg_get(dbg, dbg_cfg, mod_level_mode)==0)
+ 		return -1;
+ 
+@@ -1351,6 +1356,10 @@
+ 	if(_dbg_mod_table==NULL)
+ 		return -1;
+ 
++	if (!dbg_cfg) {
++		return -1;
++	}
++
+ 	if(cfg_get(dbg, dbg_cfg, mod_facility_mode)==0)
+ 		return -1;
+ 
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_mod.c ui-siprouter/modules/debugger/debugger_mod.c
+--- ui-siprouter~/modules/debugger/debugger_mod.c	2016-01-04 13:35:09.000000000 +0200
++++ ui-siprouter/modules/debugger/debugger_mod.c	2016-01-04 13:37:30.387413038 +0200
+@@ -426,6 +426,12 @@
+ 		LM_ERR("Fail to declare the configuration\n");
+ 		return -1;
+ 	}
++
++	/* anyhow, should fail before */
++	if (!dbg_cfg) {
++                return -1;
++	}
++
+ 	LM_DBG("cfg level_mode:%d facility_mode:%d hash_size:%d\n",
+ 		cfg_get(dbg, dbg_cfg, mod_level_mode),
+ 		cfg_get(dbg, dbg_cfg, mod_facility_mode),
+@@ -477,6 +483,7 @@
+  */
+ static void mod_destroy(void)
+ {
++	dbg_cfg = NULL;
+ }
+ 
+ /**
+@@ -598,19 +605,27 @@
+ 	}
+ 	s.s = (char*)val;
+ 	s.len = p - s.s;
++
++	if (!dbg_cfg) {
++                return -1;
++	}
++
+ 	LM_DBG("cfg level_mode:%d hash_size:%d\n",
+ 		cfg_get(dbg, dbg_cfg, mod_level_mode),
+ 		cfg_get(dbg, dbg_cfg, mod_hash_size));
++
+ 	if(dbg_init_mod_levels(cfg_get(dbg, dbg_cfg, mod_hash_size))<0)
+ 	{
+ 		LM_ERR("failed to init per module log level\n");
+ 		return -1;
+ 	}
++
+ 	if(dbg_set_mod_debug_level(s.s, s.len, &l)<0)
+ 	{
+ 		LM_ERR("cannot store parameter: %s\n", (char*)val);
+ 		return -1;
+ 	}
++
+ 	return 0;
+ 
+ }
+@@ -638,19 +653,27 @@
+ 
+ 	s.s = (char*)val;
+ 	s.len = p - s.s;
++
++	if (!dbg_cfg) {
++                return -1;
++	}
++
+ 	LM_DBG("cfg facility_mode:%d hash_size:%d\n",
+ 		cfg_get(dbg, dbg_cfg, mod_facility_mode),
+ 		cfg_get(dbg, dbg_cfg, mod_hash_size));
++
+ 	if(dbg_init_mod_levels(cfg_get(dbg, dbg_cfg, mod_hash_size))<0)
+ 	{
+ 		LM_ERR("failed to init per module log level\n");
+ 		return -1;
+ 	}
++
+ 	if(dbg_set_mod_debug_facility(s.s, s.len, &fl)<0)
+ 	{
+ 		LM_ERR("cannot store parameter: %s\n", (char*)val);
+ 		return -1;
+ 	}
++
+ 	return 0;
+ }
+ 

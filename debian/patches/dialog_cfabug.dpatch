@@ -1,0 +1,119 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## dialog_cfabug.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/dialog/dlg_handlers.c ui-siprouter/modules/dialog/dlg_handlers.c
+--- ui-siprouter~/modules/dialog/dlg_handlers.c	2015-08-12 18:19:36.000000000 +0300
++++ ui-siprouter/modules/dialog/dlg_handlers.c	2015-08-12 18:20:44.079470218 +0300
+@@ -1150,6 +1150,13 @@
+ 					dlg_release(dlg);
+ 					return;
+ 				}
++				/* 1&1 CFA bug fix hack (light B2BUA, change callid from script)*/
++				str cid_var= str_init("callid_cfabug");
++				if(get_dlg_variable(dlg, &cid_var)) {
++				    /* must mangle callid */
++				    callid.len--;
++				    LM_INFO("Mangled callid %.*s\n", callid.len, callid.s);
++				}
+ 				if (match_dialog( dlg, &callid, &ftag, &ttag, &dir )==0) {
+ 					LM_INFO("tight matching failed for %.*s with callid='%.*s'/%d, "
+ 							"ftag='%.*s'/%d, ttag='%.*s'/%d and direction=%d\n",
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/dialog/dlg_hash.c ui-siprouter/modules/dialog/dlg_hash.c
+--- ui-siprouter~/modules/dialog/dlg_hash.c	2015-08-12 18:19:34.000000000 +0300
++++ ui-siprouter/modules/dialog/dlg_hash.c	2015-08-12 18:20:21.579470621 +0300
+@@ -717,7 +717,7 @@
+ 	}
+ 
+ 	if(likely(mode==0)) dlg_unlock( d_table, d_entry);
+-	LM_DBG("no dialog callid='%.*s' found\n", callid->len, callid->s);
++	LM_INFO("no dialog callid='%.*s' found\n", callid->len, callid->s);
+ 	return 0;
+ }
+ 
+@@ -741,17 +741,32 @@
+  */
+ struct dlg_cell* get_dlg( str *callid, str *ftag, str *ttag, unsigned int *dir)
+ {
+-	struct dlg_cell *dlg;
+-	unsigned int he;
++	struct dlg_cell *dlg1, *dlg2;
++	unsigned int he1 = -1, he2 = -1;
+ 
+-	he = core_hash(callid, 0, d_table->size);
+-	dlg = internal_get_dlg(he, callid, ftag, ttag, dir, 0);
++	/* 1&1 CFA bug - check for the pstn dialog first, with safe locks(mode=0) */
++	callid->len--;
++	he2 = core_hash(callid, 0, d_table->size);
++	LM_INFO("2 - before try to acquire safe lock for len2=%d he2=%d", callid->len, he2);
++	dlg2 = internal_get_dlg(he2, callid, ftag, ttag, dir, 0);
++	LM_INFO("2 - after try to acquire safe lock for len2=%d he2=%d", callid->len, he2);
++	callid->len++;
+ 
+-	if (dlg == 0) {
+-		LM_DBG("no dialog callid='%.*s' found\n", callid->len, callid->s);
+-		return 0;
++	/* 1&1 CFA bug - check for the voip calls second if no pstn dialog */
++	if (dlg2 == 0) {
++		he1 = core_hash(callid, 0, d_table->size);
++		LM_INFO("1 - before try to acquire safe lock for len1=%d he1=%d", callid->len, he1);
++		dlg1 = internal_get_dlg(he1, callid, ftag, ttag, dir, 0);
++		LM_INFO("1 - after try to acquire safe lock for len1=%d he1=%d", callid->len, he1);
++
++		if (dlg1 == 0) {
++			LM_DBG("dialog with callid='%.*s' not found\n", callid->len, callid->s);
++			return 0;
++		}
++		return dlg1;
+ 	}
+-	return dlg;
++
++	return dlg2;
+ }
+ 
+ 
+@@ -775,17 +790,33 @@
+  */
+ dlg_cell_t* search_dlg( str *callid, str *ftag, str *ttag, unsigned int *dir)
+ {
+-	struct dlg_cell *dlg;
+-	unsigned int he;
++	struct dlg_cell *dlg1, *dlg2;
++	unsigned int he1 = -1, he2 = -1;
+ 
+-	he = core_hash(callid, 0, d_table->size);
+-	dlg = internal_get_dlg(he, callid, ftag, ttag, dir, 1);
++	/* 1&1 CFA bug - check for the pstn dialog first, with safe locks(mode=0) */
++	callid->len--;
++	he2 = core_hash(callid, 0, d_table->size);
++	LM_INFO("2 - before try to acquire safe lock for len2=%d he2=%d", callid->len, he2);
++	dlg2 = internal_get_dlg(he2, callid, ftag, ttag, dir, 0);
++	LM_INFO("2 - after try to acquire safe lock for len2=%d he2=%d", callid->len, he2);
++	callid->len++;
+ 
+-	if (dlg == 0) {
+-		LM_DBG("dialog with callid='%.*s' not found\n", callid->len, callid->s);
+-		return 0;
++	/* 1&1 CFA bug - check for the voip calls second if no pstn dialog */
++	if (dlg2 == 0) {
++		he1 = core_hash(callid, 0, d_table->size);
++		LM_INFO("1 - before try to acquire unsafe lock for len1=%d he1=%d", callid->len, he1);
++		dlg1 = internal_get_dlg(he1, callid, ftag, ttag, dir, 1);
++		LM_INFO("1 - after try to acquire unsafe lock for len1=%d he1=%d", callid->len, he1);
++
++		if (dlg1 == 0) {
++			LM_DBG("dialog with callid='%.*s' not found\n", callid->len, callid->s);
++			return 0;
++		}
++
++		return dlg1;
+ 	}
+-	return dlg;
++
++	return dlg2;
+ }
+ 
+ 

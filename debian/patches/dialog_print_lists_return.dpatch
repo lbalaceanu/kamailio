@@ -1,0 +1,21 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## dialog_print_lists_return.dpatch by Verena Kahmann <verena.kahmann@1und1.de>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/dialog/dlg_var.c ui-siprouter/modules/dialog/dlg_var.c
+--- ui-siprouter~/modules/dialog/dlg_var.c	2015-07-10 14:11:39.000000000 +0200
++++ ui-siprouter/modules/dialog/dlg_var.c	2015-07-10 14:14:13.644361478 +0200
+@@ -238,6 +238,10 @@
+ /*! Internal debugging function: Prints the list of dialogs */
+ void print_lists(struct dlg_cell *dlg) {
+ 	struct dlg_var *varlist;
++
++	/* In production do not run this */
++	return;
++
+ 	varlist = var_table;
+ 	LM_DBG("Internal var-list (%p):\n", varlist);
+ 	while (varlist) {

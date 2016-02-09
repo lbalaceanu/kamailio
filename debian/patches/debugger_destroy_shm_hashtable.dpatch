@@ -1,0 +1,121 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## debugger_destroy_shm_hashtable.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_api.c ui-siprouter/modules/debugger/debugger_api.c
+--- ui-siprouter~/modules/debugger/debugger_api.c	2016-01-07 12:32:28.000000000 +0200
++++ ui-siprouter/modules/debugger/debugger_api.c	2016-01-07 12:33:39.586873588 +0200
+@@ -1166,6 +1166,63 @@
+ 	return 0;
+ }
+ 
++/**
++ *
++ */
++int dbg_destroy_mod_levels()
++{
++	int i;
++	dbg_mod_level_t *itl = NULL;
++	dbg_mod_level_t *itlp = NULL;
++
++	dbg_mod_facility_t *itf = NULL;
++	dbg_mod_facility_t *itfp = NULL;
++
++	if (_dbg_mod_table_size <= 0)
++		return 0;
++
++	if (_dbg_mod_table == NULL)
++		return 0;
++
++	for (i = 0; i < _dbg_mod_table_size; i++) {
++		// destroy level list
++		lock_get(&_dbg_mod_table[i].lock);
++		itl = _dbg_mod_table[i].first;
++		while (itl) {
++			itlp = itl;
++			itl = itl->next;
++			shm_free(itlp);
++		}
++		lock_release(&_dbg_mod_table[i].lock);
++
++		// destroy facility list
++		lock_get(&_dbg_mod_table[i].lock_ft);
++		itf = _dbg_mod_table[i].first_ft;
++		while (itf) {
++			itfp = itf;
++			itf = itf->next;
++			shm_free(itfp);
++		}
++		lock_release(&_dbg_mod_table[i].lock_ft);
++
++		// destroy locks
++		lock_destroy(&_dbg_mod_table[i].lock);
++		lock_destroy(&_dbg_mod_table[i].lock_ft);
++
++		// reset all
++		_dbg_mod_table[i].first = NULL;
++		_dbg_mod_table[i].first_ft = NULL;
++	}
++
++	// free table
++	shm_free(_dbg_mod_table);
++	_dbg_mod_table = NULL;
++
++	LM_DBG("Destroyed _dbg_mod_table, size %d\n", _dbg_mod_table_size);
++
++	return 0;
++}
++
+ /*
+  * case insensitive hashing - clone here to avoid usage of LOG*()
+  * - s1 - str to hash
+@@ -1317,15 +1374,14 @@
+ 		itp = it;
+ 		it = it->next;
+ 	}
++	lock_release(&_dbg_mod_table[idx].lock_ft);
+ 	/* not found - add */
+ 	if(mfacility==NULL) {
+-		lock_release(&_dbg_mod_table[idx].lock_ft);
+ 		return 0;
+ 	}
+ 	itn = (dbg_mod_facility_t*)shm_malloc(sizeof(dbg_mod_facility_t) + (mnlen+1)*sizeof(char));
+ 	if(itn==NULL) {
+ 		LM_ERR("no more shm\n");
+-		lock_release(&_dbg_mod_table[idx].lock_ft);
+ 		return -1;
+ 	}
+ 	memset(itn, 0, sizeof(dbg_mod_facility_t) + (mnlen+1)*sizeof(char));
+@@ -1336,6 +1392,7 @@
+ 	strncpy(itn->name.s, mname, mnlen);
+ 	itn->name.s[itn->name.len] = '\0';
+ 
++	lock_get(&_dbg_mod_table[idx].lock_ft);
+ 	if(itp==NULL) {
+ 		itn->next = _dbg_mod_table[idx].first_ft;
+ 		_dbg_mod_table[idx].first_ft = itn;
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_api.h ui-siprouter/modules/debugger/debugger_api.h
+--- ui-siprouter~/modules/debugger/debugger_api.h	2016-01-07 12:32:28.000000000 +0200
++++ ui-siprouter/modules/debugger/debugger_api.h	2016-01-07 12:33:49.218873567 +0200
+@@ -34,6 +34,7 @@
+ int dbg_init_rpc(void);
+ 
+ int dbg_init_mod_levels(int _dbg_mod_hash_size);
++int dbg_destroy_mod_levels();
+ int dbg_set_mod_debug_level(char *mname, int mnlen, int *mlevel);
+ int dbg_set_mod_debug_facility(char *mname, int mnlen, int *mfacility);
+ void dbg_enable_mod_levels(void);
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/debugger/debugger_mod.c ui-siprouter/modules/debugger/debugger_mod.c
+--- ui-siprouter~/modules/debugger/debugger_mod.c	2016-01-07 12:32:28.000000000 +0200
++++ ui-siprouter/modules/debugger/debugger_mod.c	2016-01-07 12:34:23.726873494 +0200
+@@ -484,6 +484,7 @@
+ static void mod_destroy(void)
+ {
+ 	dbg_cfg = NULL;
++	dbg_destroy_mod_levels();
+ }
+ 
+ /**

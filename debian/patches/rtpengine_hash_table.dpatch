@@ -1,0 +1,819 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## rtpengine_hash_table.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/rtpengine/rtpengine.c ui-siprouter/modules/rtpengine/rtpengine.c
+--- ui-siprouter~/modules/rtpengine/rtpengine.c	2015-11-09 17:15:15.000000000 +0200
++++ ui-siprouter/modules/rtpengine/rtpengine.c	2015-11-09 17:17:40.449488559 +0200
+@@ -224,6 +224,7 @@
+ #include "../../modules/tm/tm_load.h"
+ #include "rtpengine.h"
+ #include "rtpengine_funcs.h"
++#include "rtpengine_hash.h"
+ #include "bencode.h"
+ 
+ MODULE_VERSION
+@@ -255,6 +256,7 @@
+ #define MI_ENABLE_RTP_PROXY			"nh_enable_rtpp"
+ #define MI_SHOW_RTP_PROXIES			"nh_show_rtpp"
+ #define MI_PING_RTP_PROXY           "nh_ping_rtpp"
++#define MI_SHOW_HASH_TOTAL          "nh_show_hash_total"
+ 
+ #define MI_RTP_PROXY_NOT_FOUND		"RTP proxy not found"
+ #define MI_RTP_PROXY_NOT_FOUND_LEN	(sizeof(MI_RTP_PROXY_NOT_FOUND)-1)
+@@ -289,6 +291,10 @@
+ #define MI_SUCCESS_LEN         		(sizeof(MI_SUCCESS)-1)
+ #define MI_FAIL                     "fail"
+ #define MI_FAIL_LEN         		(sizeof(MI_FAIL)-1)
++#define MI_HASH_ENTRIES				"entries"
++#define MI_HASH_ENTRIES_LEN			(sizeof(MI_HASH_ENTRIES)-1)
++#define MI_HASH_ENTRIES_FAIL		"Fail to get entry details"
++#define MI_HASH_ENTRIES_FAIL_LEN	(sizeof(MI_HASH_ENTRIES_FAIL)-1)
+ 
+ #define RTPENGINE_SESS_LIMIT_MSG "Parallel session limit reached"
+ #define RTPENGINE_SESS_LIMIT_MSG_LEN (sizeof(RTPENGINE_SESS_LIMIT_MSG)-1)
+@@ -337,7 +343,9 @@
+ static int fixup_set_id(void ** param, int param_no);
+ static int set_rtpengine_set_f(struct sip_msg * msg, char * str1, char * str2);
+ static struct rtpp_set * select_rtpp_set(int id_set);
+-static struct rtpp_node *select_rtpp_node(str, int);
++static struct rtpp_node *select_rtpp_node_new(str, int, int);
++static struct rtpp_node *select_rtpp_node_old(str, int, int);
++static struct rtpp_node *select_rtpp_node(str, int, int);
+ static char *send_rtpp_command(struct rtpp_node *, bencode_item_t *, int *);
+ static int get_extra_id(struct sip_msg* msg, str *id_str);
+ 
+@@ -362,12 +370,10 @@
+ static int pv_get_rtpstat_f(struct sip_msg *, pv_param_t *, pv_value_t *);
+ 
+ /*mi commands*/
+-static struct mi_root* mi_enable_rtp_proxy(struct mi_root* cmd_tree,
+-		void* param );
+-static struct mi_root* mi_show_rtp_proxy(struct mi_root* cmd_tree,
+-		void* param);
+-static struct mi_root* mi_ping_rtp_proxy(struct mi_root* cmd_tree,
+-        void* param);
++static struct mi_root* mi_enable_rtp_proxy(struct mi_root* cmd_tree, void* param);
++static struct mi_root* mi_show_rtp_proxy(struct mi_root* cmd_tree, void* param);
++static struct mi_root* mi_ping_rtp_proxy(struct mi_root* cmd_tree, void* param);
++static struct mi_root* mi_show_hash_total(struct mi_root* cmd_tree, void* param);
+ 
+ 
+ static int rtpengine_disable_tout = 60;
+@@ -378,6 +384,8 @@
+ static unsigned int myseqn = 0;
+ static str extra_id_pv_param = {NULL, 0};
+ static char *setid_avp_param = NULL;
++static int hash_table_tout = 120;
++static int hash_table_size = 256;
+ 
+ static char ** rtpp_strings=0;
+ static int rtpp_sets=0; /*used in rtpengine_set_store()*/
+@@ -475,6 +483,8 @@
+ 	{"setid_avp",             PARAM_STRING, &setid_avp_param },
+ 	{"force_send_interface",  PARAM_STRING, &force_send_ip_str	},
+ 	{"rtp_inst_pvar",         STR_PARAM, &rtp_inst_pv_param.s },
++	{"hash_table_tout",       INT_PARAM, &hash_table_tout        },
++	{"hash_table_size",       INT_PARAM, &hash_table_size        },
+ 	{0, 0, 0}
+ };
+ 
+@@ -482,6 +492,7 @@
+ 	{MI_ENABLE_RTP_PROXY,     mi_enable_rtp_proxy,  0,  0,  0},
+ 	{MI_SHOW_RTP_PROXIES,     mi_show_rtp_proxy,    0,  0,  0},
+ 	{MI_PING_RTP_PROXY,       mi_ping_rtp_proxy,    0,  0,  0},
++	{MI_SHOW_HASH_TOTAL,      mi_show_hash_total,    0,  0,  0},
+ 	{ 0, 0, 0, 0, 0}
+ };
+ 
+@@ -1239,8 +1250,7 @@
+ 	return -1;
+ }
+ 
+-static struct mi_root* mi_show_rtp_proxy(struct mi_root* cmd_tree,
+-												void* param)
++static struct mi_root* mi_show_rtp_proxy(struct mi_root* cmd_tree, void* param)
+ {
+ 	struct mi_node *node;
+ 	struct mi_root *root = NULL;
+@@ -1329,8 +1339,7 @@
+ 	return init_mi_tree(404, MI_ERROR, MI_ERROR_LEN);
+ }
+ 
+-static struct mi_root* mi_ping_rtp_proxy(struct mi_root* cmd_tree,
+-												void* param)
++static struct mi_root* mi_ping_rtp_proxy(struct mi_root* cmd_tree, void* param)
+ {
+ 	struct mi_node *node, *crt_node;
+ 	struct mi_attr *attr;
+@@ -1455,6 +1464,48 @@
+ }
+ 
+ 
++static struct mi_root* mi_show_hash_total(struct mi_root* cmd_tree, void* param)
++{
++	struct mi_node *node, *crt_node;
++	struct mi_attr *attr;
++	struct mi_root *root = NULL;
++	unsigned int total;
++	str total_str;
++
++	// Init print tree
++	root = init_mi_tree(200, MI_OK_S, MI_OK_LEN);
++	if (!root) {
++		LM_ERR("the MI tree cannot be initialized!\n");
++		return 0;
++	}
++	node = &root->node;
++
++	// Create new node and add it to the roots's kids
++	if(!(crt_node = add_mi_node_child(node, MI_DUP_NAME, "total", strlen("total"), 0, 0))) {
++		LM_ERR("cannot add the child node to the tree\n");
++		goto error;
++	}
++
++	// Get total number of entries
++	total = rtpengine_hash_table_total();
++	total_str.s = int2str(total, &total_str.len);
++
++	// Add node attributes
++	if ((attr = add_mi_attr(crt_node, MI_DUP_VALUE, MI_HASH_ENTRIES, MI_HASH_ENTRIES_LEN, total_str.s, total_str.len)) == 0) {
++		LM_ERR("cannot add attributes to the node\n");
++		goto error;
++	}
++
++	return root;
++
++error:
++	if (root) {
++	    free_mi_tree(root);
++	}
++
++	return init_mi_tree(404, MI_HASH_ENTRIES_FAIL, MI_HASH_ENTRIES_FAIL_LEN);
++}
++
+ 
+ static int
+ mod_init(void)
+@@ -1559,6 +1610,14 @@
+ 		return -1;
+ 	}
+ 
++	/* init the hastable which keeps the call-id <-> selected_node relation */
++	if (!rtpengine_hash_table_init(hash_table_size)) {
++		LM_ERR("rtpengine_hash_table_init(%d) failed!\n", hash_table_size);
++		return -1;
++	} else {
++		LM_DBG("rtpengine_hash_table_init(%d) success!\n", hash_table_size);
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1689,6 +1748,13 @@
+ 	}
+ 
+ 	shm_free(rtpp_set_list);
++
++	/* destroy the hastable which keeps the call-id <-> selected_node relation */
++	if (!rtpengine_hash_table_destroy()) {
++		LM_ERR("rtpengine_hash_table_destroy() failed!\n");
++	} else {
++		LM_DBG("rtpengine_hash_table_destroy() success!\n");
++	}
+ }
+ 
+ 
+@@ -2027,10 +2093,10 @@
+             LM_ERR("queried nodes limit reached\n");
+             goto error;
+         }
+-		if (temp.s) 
+-			node = select_rtpp_node(temp, 1);
++		if (temp.s)
++			node = select_rtpp_node(temp, 1, op);
+ 		else 
+-			node = select_rtpp_node(callid, 1);
++			node = select_rtpp_node(callid, 1, op);
+ 		if (!node) {
+ 			LM_ERR("no available proxies\n");
+ 			goto error;
+@@ -2052,6 +2118,7 @@
+ 		LM_ERR("failed to decode bencoded reply from proxy: %.*s\n", ret, cp);
+ 		goto error;
+ 	}
++
+ 	if (!bencode_dictionary_get_strcmp(resp, "result", "error")) {
+ 		if (!bencode_dictionary_get_str(resp, "error-reason", &error)){
+ 			LM_ERR("proxy return error but didn't give an error reason: %.*s\n", ret, cp);
+@@ -2070,6 +2137,17 @@
+ 	if (body_out)
+ 		*body_out = body;
+ 
++	if (op == OP_DELETE) {
++		/* Delete the key<->value from the hashtable */
++		if (!rtpengine_hash_table_remove(&callid)) {
++			LM_ERR("rtpengine hash table failed to remove entry for callen=%d callid=%.*s\n",
++				callid.len, callid.len, callid.s);
++		} else {
++			LM_DBG("rtpengine hash table remove entry for callen=%d callid=%.*s\n",
++				callid.len, callid.len, callid.s);
++		}
++	}
++
+ 	return resp;
+ 
+ error:
+@@ -2298,81 +2376,165 @@
+ 
+ 	return rtpp_list;
+ }
++
+ /*
+- * Main balancing routine. This does not try to keep the same proxy for
+- * the call if some proxies were disabled or enabled; proxy death considered
+- * too rare. Otherwise we should implement "mature" HA clustering, which is
+- * too expensive here.
++ * run the selection algorithm and return the new selected node
+  */
+ static struct rtpp_node *
+-select_rtpp_node(str callid, int do_test)
++select_rtpp_node_new(str callid, int do_test, int op)
+ {
+-	unsigned sum, sumcut, weight_sum;
+ 	struct rtpp_node* node;
+-	int was_forced;
+-
+-	if(!active_rtpp_set){
+-		LM_ERR("script error -no valid set selected\n");
+-		return NULL;
+-	}
+-	/* Most popular case: 1 proxy, nothing to calculate */
+-	if (active_rtpp_set->rtpp_node_count == 1) {
+-		node = active_rtpp_set->rn_first;
+-		if (node->rn_disabled && node->rn_recheck_ticks <= get_ticks())
+-			node->rn_disabled = rtpp_test(node, 1, 0);
+-		return node->rn_disabled ? NULL : node;
+-	}
++	unsigned i, sum, sumcut, weight_sum;
++	int was_forced = 0;
+ 
+ 	/* XXX Use quick-and-dirty hashing algo */
+-	for(sum = 0; callid.len > 0; callid.len--)
+-		sum += callid.s[callid.len - 1];
++	for(i = 0; i < callid.len; i++)
++		sum += callid.s[i];
+ 	sum &= 0xff;
+ 
+-	was_forced = 0;
+ retry:
+ 	weight_sum = 0;
+-	for (node=active_rtpp_set->rn_first; node!=NULL; node=node->rn_next) {
+ 
++	for (node=active_rtpp_set->rn_first; node!=NULL; node=node->rn_next) {
++		/* Try to enable if it's time to try. */
+ 		if (node->rn_disabled && node->rn_recheck_ticks <= get_ticks()){
+-			/* Try to enable if it's time to try. */
+ 			node->rn_disabled = rtpp_test(node, 1, 0);
+ 		}
+-		if (!node->rn_disabled)
++
++		/* Select only between enabled machines */
++		if (!node->rn_disabled) {
+ 			weight_sum += node->rn_weight;
++		}
+ 	}
++
++	/* No proxies? Force all to be redetected, if not yet */
+ 	if (weight_sum == 0) {
+-		/* No proxies? Force all to be redetected, if not yet */
+-		if (was_forced)
++		if (was_forced) {
+ 			return NULL;
++		}
++
+ 		was_forced = 1;
++
+ 		for(node=active_rtpp_set->rn_first; node!=NULL; node=node->rn_next) {
+ 			node->rn_disabled = rtpp_test(node, 1, 1);
+ 		}
++
+ 		goto retry;
+ 	}
++
++	/* sumcut here lays from 0 to weight_sum-1 */
+ 	sumcut = sum % weight_sum;
++
+ 	/*
+-	 * sumcut here lays from 0 to weight_sum-1.
+ 	 * Scan proxy list and decrease until appropriate proxy is found.
+ 	 */
+ 	for (node=active_rtpp_set->rn_first; node!=NULL; node=node->rn_next) {
++		/* Select only between enabled machines */
+ 		if (node->rn_disabled)
+ 			continue;
++
++		/* Found enabled machine */
+ 		if (sumcut < node->rn_weight)
+ 			goto found;
++
++		/* Update sumcut if enabled machine */
+ 		sumcut -= node->rn_weight;
+ 	}
++
+ 	/* No node list */
+ 	return NULL;
++
+ found:
+ 	if (do_test) {
+ 		node->rn_disabled = rtpp_test(node, node->rn_disabled, 0);
+ 		if (node->rn_disabled)
+ 			goto retry;
+ 	}
++
++	/* build hash table entry */
++	struct rtpengine_hash_entry *entry = shm_malloc(sizeof(struct rtpp_node));
++	if (shm_str_dup(&entry->callid, &callid) < 0) {
++		LM_ERR("rtpengine hash table fail to duplicate calllen=%d callid=%.*s",
++			callid.len, callid.len, callid.s);
++	}
++	entry->node = node;
++	entry->next = NULL;
++	entry->tout = get_ticks() + hash_table_tout;
++
++	/* Insert the key<->entry from the hashtable */
++	if (!rtpengine_hash_table_insert(&callid, entry)) {
++		LM_ERR("rtpengine hash table fail to insert node=%.*s for calllen=%d callid=%.*s",
++			node->rn_url.len, node->rn_url.s, callid.len, callid.len, callid.s);
++	} else {
++		LM_DBG("rtpengine hash table insert node=%.*s for calllen=%d callid=%.*s\n",
++			node->rn_url.len, node->rn_url.s, callid.len, callid.len, callid.s);
++	}
++
++	/* Return selected node  */
+ 	return node;
+ }
+ 
++/*
++ * lookup the hastable (key=callid value=node) and get the old node
++ */
++static struct rtpp_node *
++select_rtpp_node_old(str callid, int do_test, int op)
++{
++	struct rtpp_node *node = NULL;
++	struct rtpengine_hash_entry *entry = NULL;
++
++	entry = rtpengine_hash_table_lookup(&callid);
++	if (!entry) {
++		LM_ERR("rtpengine hash table lookup failed to find entry for calllen=%d callid=%.*s\n",
++			callid.len, callid.len, callid.s);
++	} else {
++		LM_DBG("rtpengine hash table lookup find entry for calllen=%d callid=%.*s\n",
++			callid.len, callid.len, callid.s);
++		node = entry->node;
++	}
++
++	if (!node) {
++		LM_ERR("rtpengine hash table lookup failed to find node for calllen=%d callid=%.*s\n",
++			callid.len, callid.len, callid.s);
++		return NULL;
++	} else {
++		LM_DBG("rtpengine hash table lookup find node=%.*s for calllen=%d callid=%.*s\n",
++			node->rn_url.len, node->rn_url.s, callid.len, callid.len, callid.s);
++	}
++
++	// if node broke, don't send any message
++	if (!node->rn_disabled) {
++		return node;
++	} else {
++		LM_DBG("rtpengine hash table lookup find node=%.*s for calllen=%d callid=%.*s, which is disabled!\n",
++			node->rn_url.len, node->rn_url.s, callid.len, callid.len, callid.s);
++	}
++
++	return NULL;
++}
++
++/*
++ * Main balancing routine. This DO try to keep the same proxy for
++ * the call if some proxies were disabled or enabled (e.g. kamctl command)
++ */
++static struct rtpp_node *
++select_rtpp_node(str callid, int do_test, int op)
++{
++	if(!active_rtpp_set) {
++		LM_ERR("script error - no valid set selected\n");
++		return NULL;
++	}
++
++	// calculate and choose a node
++	if (op == OP_OFFER) {
++		// run the selection algorithm
++		return select_rtpp_node_new(callid, do_test, op);
++	} else {
++		// lookup the hastable (key=callid value=node) and get the old node
++		return select_rtpp_node_old(callid, do_test, op);
++	}
++}
++
+ static int
+ get_extra_id(struct sip_msg* msg, str *id_str) {
+ 	if(msg==NULL || extra_id_pv==NULL || id_str==NULL) {
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/rtpengine/rtpengine_hash.c ui-siprouter/modules/rtpengine/rtpengine_hash.c
+--- ui-siprouter~/modules/rtpengine/rtpengine_hash.c	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/rtpengine/rtpengine_hash.c	2015-11-09 17:18:55.233488401 +0200
+@@ -0,0 +1,357 @@
++#include "rtpengine_hash.h"
++
++#include "../../str.h"
++#include "../../dprint.h"
++#include "../../mem/shm_mem.h"
++#include "../../locking.h"
++#include "../../timer.h"
++
++static gen_lock_t *rtpengine_hash_lock;
++static struct rtpengine_hash_table *rtpengine_hash_table;
++static int hash_table_size;
++
++/* from sipwise rtpengine */
++static int str_cmp_str(const str *a, const str *b) {
++	if (a->len < b->len)
++		return -1;
++	if (a->len > b->len)
++		return 1;
++	if (a->len == 0 && b->len == 0)
++		return 0;
++	return memcmp(a->s, b->s, a->len);
++}
++
++/* from sipwise rtpengine */
++static int str_equal(void *a, void *b) {
++	return (str_cmp_str((str *) a, (str *) b) == 0);
++}
++
++/* from sipwise rtpengine */
++static unsigned int str_hash(void *ss) {
++	const str *s = (str*) ss;
++	unsigned int ret = 5381;
++	str it = *s;
++
++	while (it.len > 0) {
++		ret = (ret << 5) + ret + *it.s;
++		it.s++;
++		it.len--;
++	}
++
++	return ret % hash_table_size;
++}
++
++/* rtpengine glib hash API */
++int rtpengine_hash_table_init(int size) {
++	int i;
++
++	// init hash table size
++	if (size < 1) {
++		hash_table_size = 1;
++	} else {
++		hash_table_size = size;
++	}
++	LM_DBG("rtpengine_hash_table size = %d\n", hash_table_size);
++
++	// init hashtable
++	rtpengine_hash_table = shm_malloc(sizeof(struct rtpengine_hash_table));
++	if (!rtpengine_hash_table) {
++		LM_ERR("no shm left to create rtpengine_hash_table\n");
++		return 0;
++	}
++
++	// init hashtable entry_list
++	rtpengine_hash_table->entry_list = shm_malloc(hash_table_size * sizeof(struct rtpengine_hash_entry));
++
++	// init hashtable entry_list[i] (head never filled)
++	for (i = 0; i < hash_table_size; i++) {
++		rtpengine_hash_table->entry_list[i] = shm_malloc(sizeof(struct rtpengine_hash_entry));
++		if (!rtpengine_hash_table->entry_list[i]) {
++			LM_ERR("no shm left to create rtpengine_hash_table->entry_list[%d]\n", i);
++			return 0;
++		}
++
++		// never expire the head of the hashtable index lists
++		rtpengine_hash_table->entry_list[i]->tout = -1;
++		rtpengine_hash_table->entry_list[i]->next = NULL;
++		rtpengine_hash_table->total = 0;
++	}
++
++	// init lock
++	rtpengine_hash_lock = lock_alloc();
++	if (!rtpengine_hash_lock) {
++		LM_ERR("no shm left to init rtpengine_hash_table lock");
++		return 0;
++	}
++
++	return 1;
++}
++
++int rtpengine_hash_table_destroy() {
++	int i;
++	struct rtpengine_hash_entry *entry, *last_entry;
++
++	// check rtpengine hashtable
++	if (!rtpengine_hash_table) {
++		LM_ERR("NULL rtpengine_hash_table");
++		return 0;
++	}
++
++	// destroy hashtable entry_list[i]
++	lock_get(rtpengine_hash_lock);
++	for (i = 0; i < hash_table_size; i++) {
++		entry = rtpengine_hash_table->entry_list[i];
++		while (entry) {
++			last_entry = entry;
++			entry = entry->next;
++			shm_free(last_entry->callid.s);
++			shm_free(last_entry);
++		}
++	}
++
++	// destroy hashtable entry_list
++	shm_free(rtpengine_hash_table->entry_list);
++
++	// destroy hashtable
++	shm_free(rtpengine_hash_table);
++	rtpengine_hash_table = NULL;
++	lock_release(rtpengine_hash_lock);
++
++	// destroy lock
++	if (!rtpengine_hash_lock) {
++		LM_ERR("NULL rtpengine_hash_lock");
++	} else {
++		lock_dealloc(rtpengine_hash_lock);
++		rtpengine_hash_lock = NULL;
++	}
++
++	return 1;
++}
++
++int rtpengine_hash_table_insert(void *key, void *value) {
++	struct rtpengine_hash_entry *entry, *last_entry;
++	struct rtpengine_hash_entry *new_entry = (struct rtpengine_hash_entry *) value;
++	unsigned int hash_index;
++
++	// check rtpengine hashtable
++	if (!rtpengine_hash_table) {
++		LM_ERR("NULL rtpengine_hash_table");
++		return 0;
++	}
++
++	// get entry list
++	hash_index = str_hash(key);
++	entry = rtpengine_hash_table->entry_list[hash_index];
++	last_entry = entry;
++
++	// lock
++	lock_get(rtpengine_hash_lock);
++	while (entry) {
++		// if key found, don't add new entry
++		if (str_equal(&entry->callid, &new_entry->callid)) {
++			// unlock
++			lock_release(rtpengine_hash_lock);
++			LM_ERR("Call id %.*s already in hashtable, ignore new value", entry->callid.len, entry->callid.s);
++			return 0;
++		}
++
++		// if expired entry discovered, delete it
++		if (entry->tout < get_ticks()) {
++			// set pointers; exclude entry
++			last_entry->next = entry->next;
++
++			// free current entry; entry points to unknown
++			shm_free(entry->callid.s);
++			shm_free(entry);
++
++			// set pointers
++			entry = last_entry;
++
++			// update total
++			rtpengine_hash_table->total--;
++		}
++
++		// next entry in the list
++		last_entry = entry;
++		entry = entry->next;
++	}
++
++	last_entry->next = new_entry;
++	rtpengine_hash_table->total++;
++
++	// unlock
++	lock_release(rtpengine_hash_lock);
++
++	return 1;
++}
++
++int rtpengine_hash_table_remove(void *key) {
++	struct rtpengine_hash_entry *entry, *last_entry;
++	unsigned int hash_index;
++
++	// check rtpengine hashtable
++	if (!rtpengine_hash_table) {
++		LM_ERR("NULL rtpengine_hash_table");
++		return 0;
++	}
++
++	// get first entry from entry list; jump over unused list head
++	hash_index = str_hash(key);
++	entry = rtpengine_hash_table->entry_list[hash_index];
++	last_entry = entry;
++
++	// lock
++	lock_get(rtpengine_hash_lock);
++	while (entry) {
++		// if key found, delete entry
++		if (str_equal(&entry->callid, (str *)key)) {
++			// free entry
++			last_entry->next = entry->next;
++			shm_free(entry->callid.s);
++			shm_free(entry);
++
++			// update total
++			rtpengine_hash_table->total--;
++
++			// unlock
++			lock_release(rtpengine_hash_lock);
++
++			return 1;
++		}
++
++		// if expired entry discovered, delete it
++		if (entry->tout < get_ticks()) {
++			// set pointers; exclude entry
++			last_entry->next = entry->next;
++
++			// free current entry; entry points to unknown
++			shm_free(entry->callid.s);
++			shm_free(entry);
++
++			// set pointers
++			entry = last_entry;
++
++			// update total
++			rtpengine_hash_table->total--;
++		}
++
++		last_entry = entry;
++		entry = entry->next;
++	}
++
++	// unlock
++	lock_release(rtpengine_hash_lock);
++
++	return 0;
++}
++
++void* rtpengine_hash_table_lookup(void *key) {
++	struct rtpengine_hash_entry *entry, *last_entry;
++	unsigned int hash_index;
++
++	// check rtpengine hashtable
++	if (!rtpengine_hash_table) {
++		LM_ERR("NULL rtpengine_hash_table");
++		return 0;
++	}
++
++	// get first entry from entry list; jump over unused list head
++	hash_index = str_hash(key);
++	entry = rtpengine_hash_table->entry_list[hash_index];
++	last_entry = entry;
++
++	// lock
++	lock_get(rtpengine_hash_lock);
++	while (entry) {
++		// if key found, return entry
++		if (str_equal(&entry->callid, (str *)key)) {
++			// unlock
++			lock_release(rtpengine_hash_lock);
++
++			return entry;
++		}
++
++		// if expired entry discovered, delete it
++		if (entry->tout < get_ticks()) {
++			// set pointers; exclude entry
++			last_entry->next = entry->next;
++
++			// free current entry; entry points to unknown
++			shm_free(entry->callid.s);
++			shm_free(entry);
++
++			// set pointers
++			entry = last_entry;
++
++			// update total
++			rtpengine_hash_table->total--;
++		}
++
++		last_entry = entry;
++		entry = entry->next;
++	}
++
++	// unlock
++	lock_release(rtpengine_hash_lock);
++
++	return NULL;
++}
++
++// print hash table entries while deleting expired entries
++void rtpengine_hash_table_print() {
++	int i;
++	struct rtpengine_hash_entry *entry, *last_entry;
++
++	// check rtpengine hashtable
++	if (!rtpengine_hash_table) {
++		LM_ERR("NULL rtpengine_hash_table");
++		return ;
++	}
++
++	// lock
++	lock_get(rtpengine_hash_lock);
++
++	// print hashtable
++	for (i = 0; i < hash_table_size; i++) {
++		entry = rtpengine_hash_table->entry_list[i];
++		last_entry = entry;
++
++		while (entry) {
++			// if expired entry discovered, delete it
++			if (entry->tout < get_ticks()) {
++				// set pointers; exclude entry
++				last_entry->next = entry->next;
++
++				// free current entry; entry points to unknown
++				shm_free(entry->callid.s);
++				shm_free(entry);
++
++				// set pointers
++				entry = last_entry;
++
++				// update total
++				rtpengine_hash_table->total--;
++			} else {
++				LM_DBG("hash_index=%d callid=%.*s tout=%u\n",
++					i, entry->callid.len, entry->callid.s, entry->tout - get_ticks());
++			}
++
++			last_entry = entry;
++			entry = entry->next;
++		}
++	}
++
++	// unlock
++	lock_release(rtpengine_hash_lock);
++}
++
++unsigned int rtpengine_hash_table_total() {
++
++	// check rtpengine hashtable
++	if (!rtpengine_hash_table) {
++		LM_ERR("NULL rtpengine_hash_table");
++		return 0;
++	}
++
++	return rtpengine_hash_table->total;
++}
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/modules/rtpengine/rtpengine_hash.h ui-siprouter/modules/rtpengine/rtpengine_hash.h
+--- ui-siprouter~/modules/rtpengine/rtpengine_hash.h	1970-01-01 02:00:00.000000000 +0200
++++ ui-siprouter/modules/rtpengine/rtpengine_hash.h	2015-11-09 17:19:10.929488367 +0200
+@@ -0,0 +1,31 @@
++#ifndef _RTPENGINE_HASH_H
++#define _RTPENGINE_HASH_H
++
++#include "../../str.h"
++
++
++/* table entry */
++struct rtpengine_hash_entry {
++	unsigned int tout;			// call timeout
++	str callid;				// call callid
++	struct rtpp_node *node;			// call selected node
++
++	struct rtpengine_hash_entry *next;	// call next
++};
++
++/* table */
++struct rtpengine_hash_table {
++	struct rtpengine_hash_entry **entry_list;	// hastable
++	unsigned int total;				// total number of entries in the hashtable
++};
++
++
++int rtpengine_hash_table_init(int size);
++int rtpengine_hash_table_destroy();
++int rtpengine_hash_table_insert(void *key, void *value);
++int rtpengine_hash_table_remove(void *key);
++void* rtpengine_hash_table_lookup(void *key);
++void rtpengine_hash_table_print();
++unsigned int rtpengine_hash_table_total();
++
++#endif

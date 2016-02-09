@@ -1,0 +1,20 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## acc-lm_gen2_log_format.dpatch by  <miti@dell>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' ui-siprouter~/dprint.h ui-siprouter/dprint.h
+--- ui-siprouter~/dprint.h	2015-06-23 09:12:52.000000000 +0300
++++ ui-siprouter/dprint.h	2015-06-23 09:14:59.128421561 +0300
+@@ -371,7 +371,8 @@
+ /* kamailio/openser compatibility */
+ 
+ #define LM_GEN1 LOG
+-#define LM_GEN2 LOG_FC
++#define LM_GEN2(facility, level, fmt, args...) \
++    LOG_((facility), (level), "", fmt , ## args)
+ #define LM_ALERT ALERT
+ #define LM_CRIT  CRIT
+ #define LM_ERR ERR

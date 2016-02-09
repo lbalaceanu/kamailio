@@ -1,0 +1,3 @@
+patching file modules/dialog/dlg_handlers.c
+Hunk #1 succeeded at 1172 with fuzz 2 (offset 22 lines).
+patching file modules/dialog/dlg_hash.c
