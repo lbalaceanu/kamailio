@@ -108,4 +108,6 @@ extern int matching_mode;
 
 extern int ul_db_ops_ruid;
 
+void my_redis_exec();
+
 #endif /* UL_MOD_H */

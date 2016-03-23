@@ -456,6 +456,190 @@ int st_flush_ucontact(ucontact_t* _c)
 	return 0; /* Makes gcc happy */
 }
 
+/* ============== Database related functions ================ */
+/*!
+ * \brief Insert contact into the database
+ * \param _c inserted contact
+ * \return 0 on success, -1 on failure
+ */
+int redisdb_insert_ucontact(ucontact_t* _c)
+{
+	char* dom;
+	db_key_t keys[18];
+	db_val_t vals[18];
+	int nr_cols;
+
+	if (_c->flags & FL_MEM) {
+		return 0;
+	}
+	if(unlikely(_c->ruid.len<=0)) {
+		LM_ERR("invalid ruid for aor: %.*s\n",
+				_c->aor->len, ZSW(_c->aor->s));
+		return -1;
+	}
+
+	keys[0] = &user_col;
+	keys[1] = &contact_col;
+	keys[2] = &expires_col;
+	keys[3] = &q_col;
+	keys[4] = &callid_col;
+	keys[5] = &cseq_col;
+	keys[6] = &flags_col;
+	keys[7] = &cflags_col;
+	keys[8] = &user_agent_col;
+	keys[9] = &received_col;
+	keys[10] = &path_col;
+	keys[11] = &sock_col;
+	keys[12] = &methods_col;
+	keys[13] = &last_mod_col;
+	keys[14] = &ruid_col;
+	keys[15] = &instance_col;
+	keys[16] = &reg_id_col;
+	keys[17] = &domain_col;
+
+	vals[0].type = DB1_STR;
+	vals[0].nul = 0;
+	vals[0].val.str_val.s = _c->aor->s;
+	vals[0].val.str_val.len = _c->aor->len;
+
+	vals[1].type = DB1_STR;
+	vals[1].nul = 0;
+	vals[1].val.str_val.s = _c->c.s;
+	vals[1].val.str_val.len = _c->c.len;
+
+	vals[2].type = DB1_DATETIME;
+	vals[2].nul = 0;
+	vals[2].val.time_val = _c->expires;
+
+	vals[3].type = DB1_DOUBLE;
+	vals[3].nul = 0;
+	vals[3].val.double_val = q2double(_c->q);
+
+	vals[4].type = DB1_STR;
+	vals[4].nul = 0;
+	vals[4].val.str_val.s = _c->callid.s;
+	vals[4].val.str_val.len = _c->callid.len;
+
+	vals[5].type = DB1_INT;
+	vals[5].nul = 0;
+	vals[5].val.int_val = _c->cseq;
+
+	vals[6].type = DB1_INT;
+	vals[6].nul = 0;
+	vals[6].val.bitmap_val = _c->flags;
+
+	vals[7].type = DB1_INT;
+	vals[7].nul = 0;
+	vals[7].val.bitmap_val = _c->cflags;
+
+	vals[8].type = DB1_STR;
+	vals[8].nul = 0;
+	vals[8].val.str_val.s = _c->user_agent.s;
+	vals[8].val.str_val.len = _c->user_agent.len;
+
+	vals[9].type = DB1_STR;
+	if (_c->received.s == 0) {
+		vals[9].nul = 1;
+	} else {
+		vals[9].nul = 0;
+		vals[9].val.str_val.s = _c->received.s;
+		vals[9].val.str_val.len = _c->received.len;
+	}
+
+	vals[10].type = DB1_STR;
+	if (_c->path.s == 0) {
+		vals[10].nul = 1;
+	} else {
+		vals[10].nul = 0;
+		vals[10].val.str_val.s = _c->path.s;
+		vals[10].val.str_val.len = _c->path.len;
+	}
+
+	vals[11].type = DB1_STR;
+	if (_c->sock) {
+		vals[11].val.str_val = _c->sock->sock_str;
+		vals[11].nul = 0;
+	} else {
+		vals[11].nul = 1;
+	}
+
+	vals[12].type = DB1_BITMAP;
+	if (_c->methods == 0xFFFFFFFF) {
+		vals[12].nul = 1;
+	} else {
+		vals[12].val.bitmap_val = _c->methods;
+		vals[12].nul = 0;
+	}
+
+	vals[13].type = DB1_DATETIME;
+	vals[13].nul = 0;
+	vals[13].val.time_val = _c->last_modified;
+
+	nr_cols = 14;
+
+	if(_c->ruid.len>0)
+	{
+		vals[nr_cols].type = DB1_STR;
+		vals[nr_cols].nul = 0;
+		vals[nr_cols].val.str_val = _c->ruid;
+	} else {
+		vals[nr_cols].nul = 1;
+	}
+	nr_cols++;
+
+	if(_c->instance.len>0)
+	{
+		vals[nr_cols].type = DB1_STR;
+		vals[nr_cols].nul = 0;
+		vals[nr_cols].val.str_val = _c->instance;
+	} else {
+		vals[nr_cols].nul = 1;
+	}
+	nr_cols++;
+
+	vals[nr_cols].type = DB1_INT;
+	vals[nr_cols].nul = 0;
+	vals[nr_cols].val.int_val = (int)_c->reg_id;
+	nr_cols++;
+
+	if (use_domain) {
+		vals[nr_cols].type = DB1_STR;
+		vals[nr_cols].nul = 0;
+
+		dom = memchr(_c->aor->s, '@', _c->aor->len);
+		if (dom==0) {
+			vals[0].val.str_val.len = 0;
+			vals[nr_cols].val.str_val = *_c->aor;
+		} else {
+			vals[0].val.str_val.len = dom - _c->aor->s;
+			vals[nr_cols].val.str_val.s = dom + 1;
+			vals[nr_cols].val.str_val.len = _c->aor->s + _c->aor->len - dom - 1;
+		}
+		nr_cols++;
+	}
+
+	//Connect   root@localhost on reg_1_a_7
+	if (ul_dbf.use_table(ul_dbh, _c->domain) < 0) {
+		LM_ERR("sql use_table failed\n");
+		return -1;
+	}
+	//
+
+
+	//insert into location (username, domain ...)
+	if (ul_dbf.insert(ul_dbh, keys, vals, nr_cols) < 0) {
+		LM_ERR("inserting contact in db failed\n");
+		return -1;
+	}
+
+	if (ul_xavp_contact_name.s) {
+		uldb_insert_attrs(_c->domain, &vals[0].val.str_val,
+				  &vals[nr_cols-1].val.str_val,
+				  &_c->ruid, _c->xavp);
+	}
+
+	return 0;
+}
 
 /* ============== Database related functions ================ */
 

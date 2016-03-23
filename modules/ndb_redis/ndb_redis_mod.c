@@ -36,6 +36,7 @@
 #include "../../trim.h"
 
 #include "redis_client.h"
+#include "bind_ndb_redis.h"
 
 MODULE_VERSION
 
@@ -80,6 +81,8 @@ static cmd_export_t cmds[]={
 		0, ANY_ROUTE},
 	{"redis_free", (cmd_function)w_redis_free_reply, 1, fixup_spve_null,
 		0, ANY_ROUTE},
+	{"bind_ndb_redis", (cmd_function)bind_ndb_redis, 1, 0,
+		0, 0},
 	{0, 0, 0, 0, 0, 0}
 };
 

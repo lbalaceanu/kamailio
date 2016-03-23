@@ -69,6 +69,7 @@
 #include "ul_rpc.h"
 #include "ul_callback.h"
 #include "usrloc.h"
+#include "../ndb_redis/bind_ndb_redis.h"
 
 MODULE_VERSION
 
@@ -106,10 +107,19 @@ static void ul_local_timer(unsigned int ticks, void* param); /*!< Local timer ha
 static int child_init(int rank);                    /*!< Per-child init function */
 static int mi_child_init(void);
 
+/* module variables */
+redisc_exec_t redis_exec;
+redisc_exec_argv_t redis_exec_argv;
+redisc_get_reply_t redis_get_reply;
+redisc_free_reply_t redis_free_reply;
+
+
 #define UL_PRELOAD_SIZE	8
 static char* ul_preload_list[UL_PRELOAD_SIZE];
 static int ul_preload_index = 0;
 static int ul_preload_param(modparam_t type, void* val);
+
+static ndb_redis_api_t redis;
 
 extern int bind_usrloc(usrloc_api_t* api);
 extern int ul_locks_no;
@@ -265,6 +275,27 @@ struct module_exports exports = {
 };
 
 
+
+void my_redis_exec() {
+	str srv, cmd, redis_res;
+	LM_ERR("!!!!!Start test query\n");
+
+	srv.s = "srvN";
+	srv.len = strlen(srv.s);
+
+	cmd.s = "SET foo bla ";
+	cmd.len = strlen(cmd.s);
+
+	redis_res.s = "r";
+	redis_res.len = strlen(redis_res.s);
+
+
+	if(redis_exec(&srv, &redis_res, &cmd)<0)
+		LM_ERR("!!!!!QUERY TEST FAILED\n");
+
+	LM_ERR("!!!!!Stop test query\n");
+}
+
 /*! \brief
  * Module initialization function
  */
@@ -272,6 +303,23 @@ static int mod_init(void)
 {
 	int i;
 	udomain_t* d;
+
+	bind_ndb_redis_t bind_ndb_redis;
+
+	bind_ndb_redis= (bind_ndb_redis_t)find_export("bind_ndb_redis", 1,0);
+	if (!bind_ndb_redis) {
+		LM_ERR("can't bind ndb_redis\n");
+		return -1;
+	}
+	if (bind_ndb_redis(&redis) < 0) {
+		LM_ERR("can't bind ndb_redis\n");
+		return -1;
+	}
+
+	redis_exec = redis.redisc_exec;
+	redis_exec_argv = redis.redisc_exec_argv;
+	redis_get_reply = redis.redisc_get_reply;
+	redis_free_reply = redis.redisc_free_reply;
 
 	if(sruid_init(&_ul_sruid, '-', "ulcx", SRUID_INC)<0)
 		return -1;

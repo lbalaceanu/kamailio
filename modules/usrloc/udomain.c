@@ -522,6 +522,117 @@ error:
 }
 
 
+/* NEW DB FUNCTIONS START */
+urecord_t* db_load_urecord(db1_con_t* _c, udomain_t* _d, str *_aor)
+{
+	ucontact_info_t *ci;
+	db_key_t columns[16];
+	db_key_t keys[2];
+	db_key_t order;
+	db_val_t vals[2];
+	db1_res_t* res = NULL;
+	str contact;
+	char *domain;
+	int i;
+
+	urecord_t* r;
+	ucontact_t* c;
+
+	keys[0] = &user_col;
+	vals[0].type = DB1_STR;
+	vals[0].nul = 0;
+	if (use_domain) {
+		keys[1] = &domain_col;
+		vals[1].type = DB1_STR;
+		vals[1].nul = 0;
+		domain = memchr(_aor->s, '@', _aor->len);
+		vals[0].val.str_val.s   = _aor->s;
+		if (domain==0) {
+			vals[0].val.str_val.len = 0;
+			vals[1].val.str_val = *_aor;
+		} else {
+			vals[0].val.str_val.len = domain - _aor->s;
+			vals[1].val.str_val.s   = domain+1;
+			vals[1].val.str_val.len = _aor->s + _aor->len - domain - 1;
+		}
+	} else {
+		vals[0].val.str_val = *_aor;
+	}
+
+	columns[0] = &contact_col;
+	columns[1] = &expires_col;
+	columns[2] = &q_col;
+	columns[3] = &callid_col;
+	columns[4] = &cseq_col;
+	columns[5] = &flags_col;
+	columns[6] = &cflags_col;
+	columns[7] = &user_agent_col;
+	columns[8] = &received_col;
+	columns[9] = &path_col;
+	columns[10] = &sock_col;
+	columns[11] = &methods_col;
+	columns[12] = &last_mod_col;
+	columns[13] = &ruid_col;
+	columns[14] = &instance_col;
+	columns[15] = &reg_id_col;
+
+	if (desc_time_order)
+		order = &last_mod_col;
+	else
+		order = &q_col;
+
+	if (ul_dbf.use_table(_c, _d->name) < 0) {
+		LM_ERR("failed to use table %.*s\n", _d->name->len, _d->name->s);
+		return 0;
+	}
+
+	///
+	my_redis_exec();
+	///
+
+	if (ul_dbf.query(_c, keys, 0, vals, columns, (use_domain)?2:1, 16, order,
+				&res) < 0) {
+		LM_ERR("db_query failed\n");
+		return 0;
+	}
+
+	if (RES_ROW_N(res) == 0) {
+		LM_DBG("aor %.*s not found in table %.*s\n",_aor->len, _aor->s, _d->name->len, _d->name->s);
+		ul_dbf.free_result(_c, res);
+		return 0;
+	}
+
+	r = 0;
+
+	for(i = 0; i < RES_ROW_N(res); i++) {
+		ci = dbrow2info(  ROW_VALUES(RES_ROWS(res) + i), &contact);
+		if (ci==0) {
+			LM_ERR("skipping record for %.*s in table %s\n",
+					_aor->len, _aor->s, _d->name->s);
+			continue;
+		}
+
+		if ( r==0 )
+			get_static_urecord( _d, _aor, &r);
+
+		if ( (c=mem_insert_ucontact(r, &contact, ci)) == 0) {
+			LM_ERR("mem_insert failed\n");
+			free_urecord(r);
+			ul_dbf.free_result(_c, res);
+			return 0;
+		}
+
+		/* We have to do this, because insert_ucontact sets state to CS_NEW
+		 * and we have the contact in the database already */
+		c->state = CS_SYNC;
+	}
+
+	ul_dbf.free_result(_c, res);
+	return r;
+}
+/*FUNC STOP*/
+
+
 /*!
  * \brief Loads from DB all contacts for an AOR
  * \param _c database connection
@@ -529,7 +640,7 @@ error:
  * \param _aor address of record
  * \return pointer to the record on success, 0 on errors or if nothing is found
  */
-urecord_t* db_load_urecord(db1_con_t* _c, udomain_t* _d, str *_aor)
+static urecord_t* old_db_load_urecord(db1_con_t* _c, udomain_t* _d, str *_aor)
 {
 	ucontact_info_t *ci;
 	db_key_t columns[16];
