@@ -311,7 +311,6 @@ err:
 /**
  *
  */
-SET foo bla
 int redisc_exec(str *srv, str *res, str *cmd, ...)
 {
 	redisc_server_t *rsrv=NULL;

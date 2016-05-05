@@ -71,6 +71,9 @@
 #include "usrloc.h"
 #include "../ndb_redis/bind_ndb_redis.h"
 
+#include <sys/types.h>
+#include <unistd.h>
+
 MODULE_VERSION
 
 #define RUID_COL       "ruid"
@@ -278,22 +281,33 @@ struct module_exports exports = {
 
 void my_redis_exec() {
 	str srv, cmd, redis_res;
-	LM_ERR("!!!!!Start test query\n");
+	char *cmd_str;
+	int cmd_len;
 
+	LM_ERR("!!!!!Start  query pid %d \n", getpid() );
 	srv.s = "srvN";
 	srv.len = strlen(srv.s);
 
-	cmd.s = "SET foo bla ";
-	cmd.len = strlen(cmd.s);
+	cmd_str="SET foo bla ";
+	if (cmd_str) {
+		cmd_len = strlen(cmd_str);
+		cmd.s = (char *)pkg_malloc(sizeof(char) * (cmd_len + 1));
+		if (!cmd.s) {
+			LOG(L_ERR, "ERROR: !!!!!!!!!!!! my_redis_exec() not enough memory\n");
+			exit(-1);
+		}
+		memcpy(cmd.s, cmd_str, cmd_len + 1);
+		cmd.len = cmd_len;
+	} else {
+		cmd.s = NULL;
+		cmd.len = 0;
+	}
 
 	redis_res.s = "r";
 	redis_res.len = strlen(redis_res.s);
-
-
+	//sleep(50);
 	if(redis_exec(&srv, &redis_res, &cmd)<0)
 		LM_ERR("!!!!!QUERY TEST FAILED\n");
-
-	LM_ERR("!!!!!Stop test query\n");
 }
 
 /*! \brief
