@@ -311,7 +311,8 @@ static inline void wb_timer(urecord_t* _r)
 {
 	ucontact_t* ptr, *t;
 	cstate_t old_state;
-	int op, res;
+	int op;
+	int res;
 
 	ptr = _r->contacts;
 
@@ -646,7 +647,27 @@ int get_ucontact_by_instance(urecord_t* _r, str* _c, ucontact_info_t* _ci,
 	str i2;
 	
 	if (_ci->instance.s == NULL || _ci->instance.len <= 0) {
-		return get_ucontact(_r, _c, _ci->callid, _ci->path, _ci->cseq, _co);
+	    //check uniq; if !uniq, return get_ucontact
+	    if (_ci->uniq.s == NULL || _ci->uniq.len <=0 ){
+	        return get_ucontact(_r, _c, _ci->callid, _ci->path, _ci->cseq, _co);
+	    }
+
+	    /* find by uniq */
+	    ptr = _r->contacts;
+	    while(ptr) {
+	        if (ptr->uniq.len > 0)
+	        {
+	            i1 = _ci->uniq;
+	            i2= ptr->uniq;
+	            if(i1.len==i2.len && memcmp(i1.s, i2.s, i2.len)==0) {
+	                *_co = ptr;
+	                return 0;
+	            }
+	        }
+
+	        ptr = ptr->next;
+	    }
+	    return 1;
 	}
 
 	/* find by instance */

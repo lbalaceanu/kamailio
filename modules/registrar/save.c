@@ -411,6 +411,9 @@ static inline ucontact_info_t* pack_ci( struct sip_msg* _m, contact_t* _c, unsig
 		}
 		if(_c->instance!=NULL && _c->instance->body.len>0)
 			ci.instance = _c->instance->body;
+		//adding uniq to ci struct
+		if (_c->uniq!=NULL && _c->uniq->body.len >0)
+		    ci.uniq = _c->uniq->body;
 		if(_use_regid && _c->instance!=NULL && _c->reg_id!=NULL && _c->reg_id->body.len>0) {
 			if(str2int(&_c->reg_id->body, &ci.reg_id)<0 || ci.reg_id==0)
 			{
@@ -585,16 +588,21 @@ error:
 	return -1;
 }
 
-
+/* returns
+ * 0 - if max_contacts will not be reached by uniq,sip.instance or regular contact match
+ * -1 - on too many contacts or other error
+ *  -2 - if we reach max_contacts, but we update the contacts by User Agent and it's all fine */
 static int test_max_contacts(struct sip_msg* _m, urecord_t* _r, contact_t* _c,
-		ucontact_info_t *ci, int mc)
+		ucontact_info_t *ci, int mc, int _use_regid)
 {
 	int num;
 	int e;
 	ucontact_t* ptr, *cont;
 	int ret;
-
+	contact_t* c;
+	str * i1,*i2;
 	num = 0;
+	int expires;
 	ptr = _r->contacts;
 	while(ptr) {
 		if (VALID_CONTACT(ptr, act_time)) {
@@ -603,12 +611,18 @@ static int test_max_contacts(struct sip_msg* _m, urecord_t* _r, contact_t* _c,
 		ptr = ptr->next;
 	}
 	LM_DBG("%d valid contacts\n", num);
-
-	for( ; _c ; _c = get_next_contact(_c) ) {
+    
+    c = _c;
+    for( ; c ; c = get_next_contact(c) ) {
 		/* calculate expires */
-		calc_contact_expires(_m, _c->expires, &e);
+		calc_contact_expires(_m, c->expires, &e);
+		/* pack the contact info */
+		if ( (ci=pack_ci( 0, c, e, 0, _use_regid))==0 ) {
+		    LM_ERR("failed to pack contact specific info\n");
+		    return -1;
+		}
+		ret = ul.get_ucontact_by_instance( _r, &c->uri, ci, &cont);
 
-		ret = ul.get_ucontact_by_instance( _r, &_c->uri, ci, &cont);
 		if (ret==-1) {
 			LM_ERR("invalid cseq for aor <%.*s>\n",_r->aor.len,_r->aor.s);
 			rerrno = R_INV_CSEQ;
@@ -626,11 +640,84 @@ static int test_max_contacts(struct sip_msg* _m, urecord_t* _r, contact_t* _c,
 
 	LM_DBG("%d contacts after commit\n", num);
 	if (num > mc) {
-		LM_INFO("too many contacts for AOR <%.*s>\n", _r->aor.len, _r->aor.s);
-		rerrno = R_TOO_MANY;
-		return -1;
-	}
+       /* REGISTER requests processing should be atomic, so we first have to know 
+        * if we can match all contacts in the request by User Agent so still don't reach max_contacts.
+        * If we can't do that, send 503*/ 
+       c = _c;
 
+       /* here we get the actual number of contacts after commit, considering User Agent overwrite */
+       for( ; c ; c = get_next_contact(c) ) {
+           /* calculate expires */
+           calc_contact_expires(_m, c->expires, &expires);
+
+           /* pack the contact info */
+           if ( (ci=pack_ci( 0, c, expires, 0, _use_regid))==0 ) {
+               LM_ERR("failed to pack contact specific info\n");
+               return -1;
+           }
+           if (ci->user_agent != NULL && ci->user_agent->len > 0)
+           {
+               /* find by User Agent and decrease */
+               ptr = _r->contacts;
+               while(ptr) {
+                   if ( ptr->user_agent.len > 0){
+                       i1 = ci->user_agent;
+                       i2= &ptr->user_agent;
+                       if(i1 && i2 && i1->s && i2->s &&
+                           i1->len==i2->len && memcmp(i1->s, i2->s, i2->len)==0) {
+                           num--;
+                           break;
+                       }
+                   }
+               ptr = ptr->next;
+               }
+           }
+       }
+
+       LM_DBG("%d contacts after commit with User Agent overwrite\n", num);
+
+       /* if still we have too many contacts after commit, send 513 */
+       if (num > mc) {
+           LM_INFO("too many contacts for AOR <%.*s>\n", _r->aor.len, _r->aor.s);
+           rerrno = R_TOO_MANY;
+           return -1;
+       }
+
+       c = _c;
+       for( ; c ; c = get_next_contact(c) ) {
+           /* calculate expires */
+           calc_contact_expires(_m, c->expires, &expires);
+
+           /* pack the contact info */
+           if ( (ci=pack_ci( 0, c, expires, 0, _use_regid))==0 ) {
+               LM_ERR("failed to pack contact specific info\n");
+               return -1;
+           }
+           if (ci->user_agent != NULL && ci->user_agent->len > 0)
+           {
+               /* find by User Agent and replace if found */
+               ptr = _r->contacts;
+               while(ptr) {
+                   if ( ptr->user_agent.len > 0){
+                       i1 = ci->user_agent;
+                       i2= &ptr->user_agent;
+                       if(i1 && i2 && i1->s && i2->s &&
+                           i1->len==i2->len && memcmp(i1->s, i2->s, i2->len)==0) {
+                           LM_DBG("updating contact with the same User Agent\n");
+                           if (ul.update_ucontact(_r, ptr, ci) < 0) {
+                               rerrno = R_UL_UPD_C;
+                               LM_ERR("failed to update contact\n");
+                               return -1;
+                           }
+                           break;
+                       }
+                   }
+                   ptr = ptr->next;
+               }
+           }
+       }
+   return -2;
+   }
 	return 0;
 }
 
@@ -674,7 +761,10 @@ static inline int update_contacts(struct sip_msg* _m, urecord_t* _r, int _mode, 
 		maxc = reg_get_crt_max_contacts();
 		if(maxc>0) {
 			_c = get_first_contact(_m);
-			if(test_max_contacts(_m, _r, _c, ci, maxc) != 0)
+			ret = test_max_contacts(_m, _r, _c, ci, maxc, _use_regid);
+			if( ret == -2 )
+			    return 0;
+            else if (ret == -1)
 				goto error;
 		}
 	}

@@ -91,6 +91,7 @@ MODULE_VERSION
 #define METHODS_COL    "methods"
 #define INSTANCE_COL   "instance"
 #define REG_ID_COL     "reg_id"
+#define UNIQ_COL       "uniq"
 #define LAST_MOD_COL   "last_modified"
 
 static int mod_init(void);                          /*!< Module initialization function */
@@ -158,6 +159,7 @@ str methods_col     = str_init(METHODS_COL);		/*!< Name of column containing the
 str instance_col    = str_init(INSTANCE_COL);	/*!< Name of column containing the SIP instance value */
 str reg_id_col      = str_init(REG_ID_COL);		/*!< Name of column containing the reg-id value */
 str last_mod_col     = str_init(LAST_MOD_COL);		/*!< Name of column containing the last modified date */
+str uniq_col       = str_init(UNIQ_COL);       /*!< Name of column containing uniq value */
 int db_mode         = 3;				/*!< Database sync scheme:  1-write through, 2-write back, 3-only db */
 int use_domain      = 0;				/*!< Whether usrloc should use domain part of aor */
 int desc_time_order = 0;				/*!< By default do not enable timestamp ordering */
@@ -243,6 +245,7 @@ static param_export_t params[] = {
 	{"default_db_type",   STR_PARAM, &default_db_type.s   },
 	{"domain_db",         STR_PARAM, &domain_db.s         },
 	{"instance_column",      STR_PARAM, &instance_col.s  	 },
+	{"uniq_column",          STR_PARAM, &uniq_col.s          },
 	{"reg_id_column",      	 STR_PARAM, &reg_id_col.s        },
 	{"write_db_url",         STR_PARAM, &write_db_url.s      },
 	{"read_db_url",          STR_PARAM, &read_db_url.s       },
@@ -349,6 +352,7 @@ static int mod_init(void)
 	methods_col.len = strlen(methods_col.s);
 	instance_col.len = strlen(instance_col.s);
 	reg_id_col.len = strlen(reg_id_col.s);
+	uniq_col.len = strlen(uniq_col.s);
 	last_mod_col.len = strlen(last_mod_col.s);
 	
 	write_db_url.len = strlen (write_db_url.s);

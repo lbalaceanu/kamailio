@@ -90,6 +90,7 @@ typedef struct ucontact {
 	time_t last_keepalive;  /*!< last keepalive timestamp */
 	unsigned int methods;   /*!< Supported methods */
 	str instance;           /*!< SIP instance value - gruu */
+	str uniq;               /*!< uniq parameter */
 	unsigned int reg_id;    /*!< reg-id parameters */
 	int tcpconn_id;          /* unique tcp connection id */
 #ifdef WITH_XAVP
@@ -116,6 +117,7 @@ typedef struct ucontact_info {
 	struct socket_info *sock; /*!< socket informations */
 	unsigned int methods;     /*!< supported methods */
 	str instance;             /*!< SIP instance value - gruu */
+	str uniq;               /*!< uniq parameter */
 	unsigned int reg_id;      /*!< reg-id parameters */
 	int tcpconn_id;
 #ifdef WITH_XAVP

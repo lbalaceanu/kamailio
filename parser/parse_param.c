@@ -172,6 +172,14 @@ static inline void parse_contact_class(param_hooks_t* _h, param_t* _p)
 			_h->contact.instance = _p;
 		}
 		break;
+	case 'u':
+	case 'U':
+	    if ((_p->name.len == 4) &&
+	            (!strncasecmp(_p->name.s+1, "niq", 3))) {
+	            _p->type = P_UNIQ;
+	            _h->contact.uniq = _p;
+	    }
+	    break;
 	case 'o':
 	case 'O':
 		if ((_p->name.len == 2) &&

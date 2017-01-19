@@ -47,6 +47,7 @@
 #include "ucontact.h"
 #include "ul_db_layer.h"
 #include "dlist.h"
+#include "p_usrloc_mod.h"
 
 /*!
  * \brief Create a new contact structure
@@ -94,6 +95,9 @@ ucontact_t* new_ucontact(str* _dom, str* _aor, str* _contact, ucontact_info_t* _
 	if (_ci->instance.s && _ci->instance.len > 0) {
 		if (shm_str_dup( &c->instance, &_ci->instance) < 0) goto error;
 	}
+	if (_ci->uniq.s && _ci->uniq.len) {
+	    if (shm_str_dup( &c->uniq, &_ci->uniq) < 0) goto error;
+	}
 
 	c->domain = _dom;
 	c->aor = _aor;
@@ -118,6 +122,7 @@ error:
 	if (c->c.s) shm_free(c->c.s);
 	if (c->ruid.s) shm_free(c->ruid.s);
 	if (c->instance.s) shm_free(c->instance.s);
+	if (c->uniq.s) shm_free(c->uniq.s);
 	shm_free(c);
 	return 0;
 }
@@ -138,6 +143,7 @@ void free_ucontact(ucontact_t* _c)
 	if (_c->c.s) shm_free(_c->c.s);
 	if (_c->ruid.s) shm_free(_c->ruid.s);
 	if (_c->instance.s) shm_free(_c->instance.s);
+	if (_c->uniq.s) shm_free(_c->uniq.s);
 	shm_free( _c );
 }
 
@@ -196,6 +202,8 @@ void print_ucontact(FILE* _f, ucontact_t* _c)
 	fprintf(_f, "instance  : '%.*s'\n",
 		_c->instance.len, ZSW(_c->instance.s));
 	fprintf(_f, "reg-id    : %u\n", _c->reg_id);
+	fprintf(_f, "uniq  : '%.*s'\n",
+	        _c->uniq.len, ZSW(_c->uniq.s));
 	fprintf(_f, "next      : %p\n", _c->next);
 	fprintf(_f, "prev      : %p\n", _c->prev);
 	fprintf(_f, "~~~/Contact~~~~\n");
@@ -233,6 +241,12 @@ int mem_update_ucontact(ucontact_t* _c, ucontact_info_t* _ci)
 	if(_ci->instance.s!=NULL && _ci->instance.len>0) {
 	    update_str (& _c->instance, &_ci->instance);
 	}
+	
+	if(_ci->uniq.s!=NULL && _ci->uniq.len>0)
+	{
+	    update_str (& _c->uniq, &_ci->uniq);
+	}
+
 	/* Update contact */
 	if(_ci->c!=NULL && _ci->c->s!=NULL && _ci->c->len>0) {
 	    update_str( &_c->c, _ci->c);
@@ -596,6 +610,17 @@ int db_insert_ucontact(ucontact_t* _c)
 	vals[nr_cols].val.int_val = (int)_c->reg_id;
 	nr_cols++;
 
+	keys[nr_cols] = &uniq_col;
+	if(_c->uniq.len>0)
+	{
+	    vals[nr_cols].type = DB1_STR;
+	    vals[nr_cols].nul = 0;
+	    vals[nr_cols].val.str_val = _c->uniq;
+	} else {
+	    vals[nr_cols].nul = 1;
+	}
+	nr_cols++;
+
 	nr_cols_key  = nr_cols;
 	/* to prevent errors from the DB because of duplicated entries */
 	
@@ -620,8 +645,8 @@ int db_update_ucontact_addr(ucontact_t* _c)
 	db_val_t vals1[4];
 	int n1;
 
-	db_key_t keys2[14];
-	db_val_t vals2[14];
+	db_key_t keys2[15];
+	db_val_t vals2[15];
 	int nr_cols2;
 
 	if (_c->flags & FL_MEM) {
@@ -646,6 +671,7 @@ int db_update_ucontact_addr(ucontact_t* _c)
 	keys2[11] = &ruid_col;
 	keys2[12] = &instance_col;
 	keys2[13] = &reg_id_col;
+	keys2[14] = &uniq_col;
 
 	n1 = 0;
 	keys1[n1] = &user_col;
@@ -752,6 +778,15 @@ int db_update_ucontact_addr(ucontact_t* _c)
 	vals2[nr_cols2].nul = 0;
 	vals2[nr_cols2].val.int_val = (int)_c->reg_id;
 
+	nr_cols2++;
+	if(_c->uniq.len>0)
+	{
+	    vals2[nr_cols2].type = DB1_STR;
+	    vals2[nr_cols2].nul = 0;
+	    vals2[nr_cols2].val.str_val = _c->uniq;
+	} else {
+	    vals2[nr_cols2].nul = 1;
+	}
 	nr_cols2++;
 
 	if (use_domain) {
@@ -930,6 +965,20 @@ int db_update_ucontact_ruid(ucontact_t* _c)
    vals2[n2].nul = 0;
    vals2[n2].val.int_val = (int)_c->reg_id;
    n2++;
+
+
+   keys2[n2] = &uniq_col;
+
+   if(_c->uniq.len>0)
+   {
+       vals2[n2].type = DB1_STR;
+       vals2[n2].nul = 0;
+       vals2[n2].val.str_val = _c->uniq;
+   } else {
+       vals2[n2].nul = 1;
+   }
+   n2++;
+
 
    user = *_c->aor;
 

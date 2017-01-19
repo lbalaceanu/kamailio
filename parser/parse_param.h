@@ -62,6 +62,7 @@ typedef enum ptype {
 	P_DSTIP,     /*!< URI: dstip parameter */
 	P_DSTPORT,   /*!< URi: dstport parameter */
 	P_INSTANCE,  /*!< Contact: sip.instance parameter */
+	P_UNIQ,      /*!< Contact: uniq parameter */
 	P_REG_ID,    /*!< Contact: reg-id parameter */
 	P_FTAG,      /*!< URI: ftag parameter */
 	P_CALL_ID,   /*!< Dialog event package: call-id */
@@ -106,6 +107,7 @@ struct contact_hooks {
 	struct param* methods;  /*!< methods parameter */
 	struct param* received; /*!< received parameter */
 	struct param* instance; /*!< sip.instance parameter */
+	struct param* uniq;     /*! uniq parameter */
 	struct param* reg_id;   /*!< reg-id parameter */
 	struct param* ob;       /*!< ob parameter */
 };

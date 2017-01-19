@@ -186,6 +186,7 @@ int parse_contacts(str* _s, contact_t** _c)
 {
 	contact_t* c;
 	param_hooks_t hooks;
+	str uri;
 
 	while(1) {
 		     /* Allocate and clear contact structure */
@@ -223,6 +224,16 @@ int parse_contacts(str* _s, contact_t** _c)
 		}
 
 		trim(&c->uri);
+
+		uri = c->uri;
+
+		//this is a hack, because we are looking for parameters inside the URI, but that's how uniq is used (e.g. Contact:<...;uniq=...>;expires=...
+		if (parse_params(&uri, CLASS_CONTACT, &hooks, &c->params) < 0) {
+		    LOG(L_ERR, "parse_contacts(): Error while parsing parameters\n");
+		    goto error;
+		}
+
+		c->uniq = hooks.contact.uniq;
 		
 		if (_s->len == 0) goto ok;
 		

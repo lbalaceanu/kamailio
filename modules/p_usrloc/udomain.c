@@ -352,6 +352,11 @@ static inline ucontact_info_t* dbrow2info( db_val_t *vals, str *contact)
 		ci.reg_id = VAL_UINT(vals+15);
 	}
 
+	if (!VAL_NULL(vals+16)) {
+	    ci.uniq.s = (char*)VAL_STRING(vals+16);
+	    ci.uniq.len = strlen(ci.uniq.s);
+	}
+	
 	return &ci;
 }
 
@@ -367,7 +372,7 @@ static inline ucontact_info_t* dbrow2info( db_val_t *vals, str *contact)
 urecord_t* db_load_urecord(udomain_t* _d, str *_aor)
 {
 	ucontact_info_t *ci;
-	db_key_t columns[16];
+	db_key_t columns[17];
 	db_key_t keys[2];
 	db_key_t order;
 	db_val_t vals[2];
@@ -416,13 +421,14 @@ urecord_t* db_load_urecord(udomain_t* _d, str *_aor)
 	columns[13] = &ruid_col;
 	columns[14] = &instance_col;
 	columns[15] = &reg_id_col;
+	columns[16] = &uniq_col;
 
 	if (desc_time_order)
 		order = &last_mod_col;
 	else
 		order = &q_col;
 
-	if (ul_db_layer_query(_d,  &vals[0].val.str_val,  &vals[1].val.str_val, keys, 0, vals, columns, (use_domain)?2:1, 16, order,
+	if (ul_db_layer_query(_d,  &vals[0].val.str_val,  &vals[1].val.str_val, keys, 0, vals, columns, (use_domain)?2:1, 17, order,
 				&res) < 0) {
 		LM_ERR("db_query failed\n");
 		return 0;
@@ -474,7 +480,7 @@ urecord_t* db_load_urecord(udomain_t* _d, str *_aor)
 urecord_t* db_load_urecord_by_ruid(udomain_t* _d, str *_ruid)
 {
 	ucontact_info_t *ci;
-	db_key_t columns[18];
+	db_key_t columns[19];
 	db_key_t keys[1];
 	db_key_t order;
 	db_val_t vals[1];
@@ -511,6 +517,7 @@ urecord_t* db_load_urecord_by_ruid(udomain_t* _d, str *_ruid)
 	columns[15] = &reg_id_col;
 	columns[16] = &user_col;
 	columns[17] = &domain_col;
+	columns[18] = &uniq_col;
 
 	if (desc_time_order)
 		order = &last_mod_col;
@@ -542,7 +549,7 @@ urecord_t* db_load_urecord_by_ruid(udomain_t* _d, str *_ruid)
 		goto done;
 	}
 
-	aor.s = (char*)VAL_STRING(ROW_VALUES(row) + 15);
+	aor.s = (char*)VAL_STRING(ROW_VALUES(row) + 16);
 	aor.len = strlen(aor.s);
 
 	if (use_domain) {

@@ -49,6 +49,7 @@ typedef struct contact {
 	param_t* methods;       /* methods parameter hook */
 	param_t* received;      /* received parameter hook */
 	param_t* instance;      /* sip.instance parameter hook */
+	param_t* uniq;          /* uniq parameter hook */
 	param_t* reg_id;        /* reg-id parameter hook */
 	param_t* params;        /* List of all parameters */
 	int len;                /* Total length of the element */
